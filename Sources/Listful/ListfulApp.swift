@@ -80,24 +80,27 @@ struct ListfulApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationWillFinishLaunching(_ notification: Notification) {
-        // Run as a bare executable (`swift run`) there's no bundle icon, so set
-        // the Dock icon here. A packaged Listful.app gets it from Info.plist
-        // instead and doesn't ship SwiftPM's resource bundle, where touching
-        // `Bundle.module` would crash, so only do this when unbundled.
-        // Source artwork: spec/icon.png (scaled to 1024px for the resource).
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Launched as a bare SwiftPM executable there's no Info.plist, so
+        // opt in to being a regular Dock app that can take keyboard focus.
+        NSApp.setActivationPolicy(.regular)
+        // Only after that: switching the policy creates the Dock tile with
+        // the default icon, replacing any icon set earlier.
+        setDockIconIfUnbundled()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Run as a bare executable (`swift run`) there's no bundle icon, so set
+    /// the Dock icon at runtime. A packaged Listful.app gets it from
+    /// Info.plist instead and doesn't ship SwiftPM's resource bundle, where
+    /// touching `Bundle.module` would crash, so only do this when unbundled.
+    /// Source artwork: spec/icon.png (scaled to 1024px for the resource).
+    @MainActor private func setDockIconIfUnbundled() {
         guard Bundle.main.bundleIdentifier == nil else { return }
         if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "png"),
            let icon = NSImage(contentsOf: url) {
             NSApp.applicationIconImage = icon
         }
-    }
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        // Launched as a bare SwiftPM executable there's no Info.plist, so
-        // opt in to being a regular Dock app that can take keyboard focus.
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
