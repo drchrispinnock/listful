@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**Listful** — a native macOS outliner-style task manager (Workflowy-like, no subscription), in Swift/SwiftUI. (Formerly TaskMgr; the repo directory is still `taskmgr`.) Requirements live in `spec/specification.md`.
+**Listful** — a native macOS outliner-style task manager (Workflowy-like, no subscription), in Swift/SwiftUI. (Formerly TaskMgr.) Requirements live in `spec/specification.md`.
 
 ## Commands
 
@@ -17,7 +17,11 @@ scripts/test --filter OutlineTests            # one suite
 scripts/test --filter "OutlineTests/outdentPlacesAfterParentSubtree"  # one test
 swift run Listful                             # launch the app
 .build/debug/Listful -libraryFolder /some/dir # launch against another task-list folder (NSArgumentDomain overrides the saved default)
+scripts/release                               # signed + notarized dist/Listful-<VERSION>.dmg (setup in README)
+scripts/release --adhoc                       # same packaging, local signature, no notarization
 ```
+
+Releases: bump `VERSION`; the bundle comes from `packaging/Info.plist` (placeholders filled by the script; bundle ID `com.chrispinnock.listful`). The universal build prints a spurious "x86_64 deprecated for macOS 27.0" warning — the binary's minimum is really 14.0 (check with `otool -l … | grep minos`).
 
 Avoid smoke-launching the GUI unless needed, and tell the user first: the app activates itself on launch and **takes keyboard focus from their terminal**, so whatever they're typing goes to your test instance (stray Delete presses trashed scratch lists this way). The Bash tool runs zsh (not the user's tcsh), so `PID=$!` works. Stop the app by that PID, never `pkill -f Listful` — the user may have their own instance running, and a signal skips the save-on-quit. Smoke launches also share the user's real defaults domain (`defaults read Listful`): values passed as `-key value` aren't persisted, but the app writes `linkedFiles`/`selectedList` back during the run, so delete any scratch entries afterwards.
 
@@ -27,8 +31,8 @@ Use `scripts/test` rather than bare `swift test`: with only the CLT, SwiftPM int
 
 - **Don't use `@State` (or other SwiftUI macros like `@Entry`/`@Previewable`).** In this SDK they're macros whose plugin ships only with Xcode, so they fail to build with the CLT. `@Observable` and `@Bindable` work. The app holds its `LibraryModel` as a plain `let` on the `App` struct.
 - Deployment target is macOS 14; the SDK is newer, so watch for APIs that are SDK-newer than 14 (e.g. `UTType.markdown` is 27+).
-- Settings live in the defaults domain named after the executable (`Listful`). `SettingsMigration` copies the old `TaskMgr` domain across once at startup.
-- The app isn't a `.app` bundle, so there's no Info.plist or `.icns`: `AppDelegate` sets the Dock icon at launch from `Resources/AppIcon.png` via `Bundle.module` (a 1024px copy of `spec/icon.png`; regenerate with `sips -z 1024 1024 spec/icon.png --out Sources/Listful/Resources/AppIcon.png`).
+- Settings live in a defaults domain that depends on how the app runs: `Listful` (executable name) under `swift run`, `com.chrispinnock.listful` for the packaged app. `SettingsMigration` copies older domains (`Listful`, `TaskMgr`) forward once at startup, never overwriting.
+- Under `swift run` there's no `.app` bundle, so `AppDelegate` sets the Dock icon at launch from `Resources/AppIcon.png` (a 1024px copy of `spec/icon.png`; regenerate with `sips -z 1024 1024 spec/icon.png --out Sources/Listful/Resources/AppIcon.png`) via `Bundle.module` — only when `Bundle.main.bundleIdentifier == nil`. The packaged app uses `AppIcon.icns` (built from `spec/icon.png` by `scripts/release`) and doesn't contain SwiftPM's resource bundle, so **never touch `Bundle.module` on the bundled path** — its accessor `fatalError`s when the bundle is missing.
 - Inside `#expect(...)`, don't call mutating methods; assign to a local first.
 
 ## Architecture

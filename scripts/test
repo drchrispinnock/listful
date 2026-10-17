@@ -1,0 +1,13 @@
+#!/bin/sh
+# Runs `swift test`, passing any arguments through (e.g. --filter OutlineTests).
+#
+# With only the Command Line Tools installed, SwiftPM intermittently fails to
+# find the Swift Testing macro plugin ("plugin for module 'TestingMacros' not
+# found"). Pointing the compiler at it explicitly fixes that.
+set -e
+developer_dir=$(xcode-select -p)
+plugins="$developer_dir/usr/lib/swift/host/plugins/testing"
+if [ -d "$plugins" ]; then
+    exec swift test -Xswiftc -plugin-path -Xswiftc "$plugins" "$@"
+fi
+exec swift test "$@"
