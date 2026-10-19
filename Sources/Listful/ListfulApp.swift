@@ -29,6 +29,9 @@ struct ListfulApp: App {
 
     @CommandsBuilder private var commands: some Commands {
         SidebarCommands()
+        CommandGroup(replacing: .appInfo) {
+            Button("About Listful") { AboutPanel.show() }
+        }
         CommandGroup(replacing: .newItem) {
             Button("New Task List…") { library.promptNewList() }
                 .keyboardShortcut("n")
