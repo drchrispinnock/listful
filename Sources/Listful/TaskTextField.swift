@@ -3,7 +3,9 @@ import SwiftUI
 
 /// Outliner keystrokes intercepted from a row's text field.
 enum TaskFieldCommand {
-    case newTask, indent, outdent, focusPrevious, focusNext, deleteEmpty
+    /// Return, with the selection (UTF-16 offsets) to split the task at.
+    case newTask(selection: Range<Int>)
+    case indent, outdent, focusPrevious, focusNext, deleteEmpty
 }
 
 /// A borderless NSTextField that wraps long titles onto further lines. SwiftUI's TextField can't intercept
@@ -16,6 +18,8 @@ struct TaskTextField: NSViewRepresentable {
     var isStruckThrough: Bool
     /// A pending one-shot focus request for this row; `onFocus` acknowledges it.
     var wantsFocus: Bool
+    /// Where to put the caret on taking focus (UTF-16 offset); nil is the end.
+    var focusCaret: Int?
     var onTextChange: (String) -> Void
     var onFocus: () -> Void
     var onCommand: (TaskFieldCommand) -> Void
@@ -63,16 +67,17 @@ struct TaskTextField: NSViewRepresentable {
             // Deferred: the view may not be in a window yet, and reporting
             // focus mutates state, which isn't allowed during a view update.
             DispatchQueue.main.async {
-                if field.currentEditor() != nil {
-                    // Already focused; just acknowledge the request.
-                    onFocus()
-                    return
+                if field.currentEditor() == nil {
+                    guard let window = field.window else { return }
+                    window.makeFirstResponder(field)
                 }
-                guard let window = field.window else { return }
-                window.makeFirstResponder(field)
-                if let editor = field.currentEditor() {
-                    editor.selectedRange = NSRange(location: field.stringValue.utf16.count, length: 0)
-                }
+                // Also when already focused: a split may have just changed its text.
+                guard let editor = field.currentEditor() else { return }
+                let length = field.stringValue.utf16.count
+                editor.selectedRange = NSRange(location: min(focusCaret ?? length, length), length: 0)
+                // becomeFirstResponder reports focus itself; this covers the
+                // already-focused case, and acknowledging twice is harmless.
+                onFocus()
             }
         }
     }
@@ -122,7 +127,9 @@ struct TaskTextField: NSViewRepresentable {
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             let command: TaskFieldCommand
             switch selector {
-            case #selector(NSResponder.insertNewline(_:)): command = .newTask
+            case #selector(NSResponder.insertNewline(_:)):
+                let selection = textView.selectedRange()
+                command = .newTask(selection: selection.location..<(selection.location + selection.length))
             case #selector(NSResponder.insertTab(_:)): command = .indent
             case #selector(NSResponder.insertBacktab(_:)): command = .outdent
             case #selector(NSResponder.moveUp(_:)): command = .focusPrevious

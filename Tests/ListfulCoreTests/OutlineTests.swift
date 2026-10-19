@@ -75,22 +75,59 @@ func shape(_ outline: Outline) -> [String] {
     @Test func returnOnEmptyNestedTaskOutdents() {
         var o = outline(["a:0", "b:1", ":1"])
         let r = o.returnKey(at: 2)
-        #expect(r == 2)
+        #expect(r.index == 2)
+        #expect(r.caret == nil)
         #expect(shape(o) == ["a:0", "b:1", ":0"])
     }
 
     @Test func returnOnEmptyTopLevelTaskInserts() {
         var o = outline(["a:0", ":0"])
         let r = o.returnKey(at: 1)
-        #expect(r == 2)
+        #expect(r.index == 2)
         #expect(shape(o) == ["a:0", ":0", ":0"])
     }
 
     @Test func returnOnNonEmptyNestedTaskInserts() {
         var o = outline(["a:0", "b:1"])
         let r = o.returnKey(at: 1)
-        #expect(r == 2)
+        #expect(r.index == 2)
         #expect(shape(o) == ["a:0", "b:1", ":1"])
+    }
+
+    @Test func returnMidLineSplitsTask() {
+        var o = outline(["hello world:0", "x:0"])
+        let r = o.returnKey(at: 0, selection: 5..<5)
+        #expect(r.index == 1)
+        #expect(r.caret == 0)
+        #expect(shape(o) == ["hello:0", " world:0", "x:0"])
+    }
+
+    @Test func returnMidLineOfParentSplitsIntoFirstChild() {
+        var o = outline(["abcd:0", "c:1"])
+        let r = o.returnKey(at: 0, selection: 2..<2)
+        #expect(r.index == 1)
+        #expect(shape(o) == ["ab:0", "cd:1", "c:1"])
+    }
+
+    @Test func returnDeletesSelectionBeforeSplitting() {
+        var o = outline(["abcdef:0"])
+        let r = o.returnKey(at: 0, selection: 2..<4)
+        #expect(r.index == 1)
+        #expect(shape(o) == ["ab:0", "ef:0"])
+    }
+
+    @Test func returnAtStartInsertsEmptyTaskAbove() {
+        var o = outline(["a:0", "b:1", "c:2"])
+        let r = o.returnKey(at: 1, selection: 0..<0)
+        #expect(r.index == 2)
+        #expect(r.caret == 0)
+        #expect(shape(o) == ["a:0", ":1", "b:1", "c:2"])
+    }
+
+    @Test func returnSplitsByUTF16Offset() {
+        var o = outline(["🙂ab:0"])
+        o.returnKey(at: 0, selection: 3..<3)
+        #expect(shape(o) == ["🙂a:0", "b:0"])
     }
 
     @Test func outdentTopLevelFails() {

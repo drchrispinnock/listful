@@ -59,6 +59,7 @@ struct TaskRow: View {
                 placeholder: item.isHeading ? "Heading" : "",
                 isStruckThrough: !item.isHeading && showStrikethrough && item.state != .open,
                 wantsFocus: document.focusRequestID == item.id,
+                focusCaret: document.focusRequestCaret,
                 onTextChange: { document.setTitle($0, for: item.id) },
                 onFocus: { document.didFocus(item.id) },
                 onCommand: handle
@@ -137,7 +138,7 @@ struct TaskRow: View {
 
     private func handle(_ command: TaskFieldCommand) {
         switch command {
-        case .newTask: document.returnKey(item.id)
+        case .newTask(let selection): document.returnKey(item.id, selection: selection)
         case .indent: document.indent(item.id)
         case .outdent: document.outdent(item.id)
         case .focusPrevious: document.focusPrevious(from: item.id)

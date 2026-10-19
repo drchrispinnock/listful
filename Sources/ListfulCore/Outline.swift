@@ -188,15 +188,36 @@ public struct Outline: Equatable, Sendable {
         return position
     }
 
-    /// Return in a row: an empty, childless nested task moves out a level
-    /// (so Return twice steps back out); anything else gets a new task after
-    /// it. Returns the index of the row to focus.
+    /// Return in a row whose selection is `selection` (UTF-16 offsets into
+    /// the title; nil means the caret is at the end). Returns the row to
+    /// focus and where its caret goes (nil: at the end).
+    ///
+    /// - An empty, childless nested task moves out a level, so Return twice
+    ///   steps back out.
+    /// - Otherwise the selection is deleted and the title split there: the
+    ///   text after it becomes a new task after this one. At the very start,
+    ///   an empty task goes in above instead, so the row keeps its children.
     @discardableResult
-    public mutating func returnKey(at index: Int) -> Int {
-        if items[index].title.isEmpty, !hasChildren(index), let newIndex = outdent(at: index) {
-            return newIndex
+    public mutating func returnKey(at index: Int, selection: Range<Int>? = nil) -> (index: Int, caret: Int?) {
+        let title = items[index].title
+        if title.isEmpty, !hasChildren(index), let newIndex = outdent(at: index) {
+            return (newIndex, nil)
         }
-        return insertItem(after: index)
+        let utf16 = title.utf16
+        let lower = min(max(selection?.lowerBound ?? utf16.count, 0), utf16.count)
+        let upper = min(max(selection?.upperBound ?? utf16.count, lower), utf16.count)
+        let head = String(title[..<utf16.index(utf16.startIndex, offsetBy: lower)])
+        let tail = String(title[utf16.index(utf16.startIndex, offsetBy: upper)...])
+
+        if head.isEmpty && !tail.isEmpty {
+            items[index].title = tail
+            items.insert(TaskItem(title: "", depth: items[index].depth), at: index)
+            return (index + 1, 0)
+        }
+        items[index].title = head
+        let newIndex = insertItem(after: index)
+        items[newIndex].title = tail
+        return (newIndex, 0)
     }
 
     /// Makes the item (with its subtree) the last child of its previous sibling.

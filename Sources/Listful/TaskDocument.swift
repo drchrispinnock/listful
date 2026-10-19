@@ -14,6 +14,8 @@ final class TaskDocument {
     /// A one-shot request for a row's text field to take keyboard focus.
     /// Cleared once that field has focus, so it can't steal focus back later.
     private(set) var focusRequestID: UUID?
+    /// Where the requested field puts its caret (UTF-16 offset); nil is the end.
+    private(set) var focusRequestCaret: Int?
     var errorMessage: String?
 
     @ObservationIgnored private let store: TaskStore
@@ -86,12 +88,13 @@ final class TaskDocument {
         requestFocus(id)
     }
 
-    /// Return in a row: a new task, or an empty nested one moves out a level.
-    func returnKey(_ id: UUID) {
+    /// Return in a row: splits it at the selection into a new task, or
+    /// moves an empty nested one out a level.
+    func returnKey(_ id: UUID, selection: Range<Int>) {
         guard let i = outline.index(of: id) else { return }
-        var newIndex = 0
-        mutate { newIndex = $0.returnKey(at: i) }
-        requestFocus(outline.items[newIndex].id)
+        var target: (index: Int, caret: Int?) = (0, nil)
+        mutate { target = $0.returnKey(at: i, selection: selection) }
+        requestFocus(outline.items[target.index].id, caret: target.caret)
     }
 
     func appendTask() {
@@ -169,9 +172,10 @@ final class TaskDocument {
 
     // MARK: - Focus
 
-    func requestFocus(_ id: UUID) {
+    func requestFocus(_ id: UUID, caret: Int? = nil) {
         focusedID = id
         focusRequestID = id
+        focusRequestCaret = caret
     }
 
     /// Called by a row's text field once it actually has keyboard focus.
