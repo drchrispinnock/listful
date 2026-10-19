@@ -86,10 +86,11 @@ final class TaskDocument {
         requestFocus(id)
     }
 
-    func insertTask(after id: UUID) {
+    /// Return in a row: a new task, or an empty nested one moves out a level.
+    func returnKey(_ id: UUID) {
         guard let i = outline.index(of: id) else { return }
         var newIndex = 0
-        mutate { newIndex = $0.insertItem(after: i) }
+        mutate { newIndex = $0.returnKey(at: i) }
         requestFocus(outline.items[newIndex].id)
     }
 

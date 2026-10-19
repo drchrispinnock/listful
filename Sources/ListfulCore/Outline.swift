@@ -188,6 +188,17 @@ public struct Outline: Equatable, Sendable {
         return position
     }
 
+    /// Return in a row: an empty, childless nested task moves out a level
+    /// (so Return twice steps back out); anything else gets a new task after
+    /// it. Returns the index of the row to focus.
+    @discardableResult
+    public mutating func returnKey(at index: Int) -> Int {
+        if items[index].title.isEmpty, !hasChildren(index), let newIndex = outdent(at: index) {
+            return newIndex
+        }
+        return insertItem(after: index)
+    }
+
     /// Makes the item (with its subtree) the last child of its previous sibling.
     /// Returns false if there is no previous sibling, or either is a heading.
     @discardableResult

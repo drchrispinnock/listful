@@ -72,6 +72,27 @@ func shape(_ outline: Outline) -> [String] {
         #expect(shape(o) == ["a:0", "d:1", "b:0", "c:1", "e:0"])
     }
 
+    @Test func returnOnEmptyNestedTaskOutdents() {
+        var o = outline(["a:0", "b:1", ":1"])
+        let r = o.returnKey(at: 2)
+        #expect(r == 2)
+        #expect(shape(o) == ["a:0", "b:1", ":0"])
+    }
+
+    @Test func returnOnEmptyTopLevelTaskInserts() {
+        var o = outline(["a:0", ":0"])
+        let r = o.returnKey(at: 1)
+        #expect(r == 2)
+        #expect(shape(o) == ["a:0", ":0", ":0"])
+    }
+
+    @Test func returnOnNonEmptyNestedTaskInserts() {
+        var o = outline(["a:0", "b:1"])
+        let r = o.returnKey(at: 1)
+        #expect(r == 2)
+        #expect(shape(o) == ["a:0", "b:1", ":1"])
+    }
+
     @Test func outdentTopLevelFails() {
         var o = outline(["a:0"])
         let r = o.outdent(at: 0)

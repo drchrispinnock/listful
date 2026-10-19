@@ -137,7 +137,7 @@ struct TaskRow: View {
 
     private func handle(_ command: TaskFieldCommand) {
         switch command {
-        case .newTask: document.insertTask(after: item.id)
+        case .newTask: document.returnKey(item.id)
         case .indent: document.indent(item.id)
         case .outdent: document.outdent(item.id)
         case .focusPrevious: document.focusPrevious(from: item.id)
