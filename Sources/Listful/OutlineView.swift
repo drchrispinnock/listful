@@ -9,8 +9,10 @@ struct OutlineView: View {
         ScrollView {
             // Not lazy: every row's text field must exist so focus can move to it.
             VStack(alignment: .leading, spacing: 2) {
-                ListTitleField(document: document)
-                    .padding(.bottom, 10)
+                if document.showsListTitle {
+                    ListTitleField(document: document)
+                        .padding(.bottom, 10)
+                }
                 ForEach(rows) { item in
                     TaskRow(item: item, document: document)
                 }
@@ -148,14 +150,14 @@ struct TaskRow: View {
     }
 }
 
-/// The list's `#` title, shown large above the tasks. Empty shows the file
-/// name as a placeholder, and the file then has no `#` line.
+/// The list's `#` title, shown large above the tasks when the file has one.
+/// Clearing it removes the `#` line from the file.
 struct ListTitleField: View {
     let document: TaskDocument
 
     var body: some View {
         TextField(
-            document.fileName,
+            "",
             text: Binding(get: { document.outline.title ?? "" }, set: { document.setListTitle($0) })
         )
         .textFieldStyle(.plain)

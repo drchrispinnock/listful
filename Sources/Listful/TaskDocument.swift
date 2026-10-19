@@ -16,6 +16,10 @@ final class TaskDocument {
     private(set) var focusRequestID: UUID?
     /// Where the requested field puts its caret (UTF-16 offset); nil is the end.
     private(set) var focusRequestCaret: Int?
+    /// Whether to show the title field: only when the file has a `#` title.
+    /// Stays on if the title is cleared, so the field doesn't vanish while
+    /// being edited; it's re-evaluated on load.
+    private(set) var showsListTitle = false
     var errorMessage: String?
 
     @ObservationIgnored private let store: TaskStore
@@ -40,6 +44,7 @@ final class TaskDocument {
     func setListTitle(_ title: String) {
         let newTitle: String? = title.isEmpty ? nil : title
         guard newTitle != outline.title else { return }
+        if newTitle != nil { showsListTitle = true }
         mutate { $0.title = newTitle }
     }
 
@@ -222,6 +227,7 @@ final class TaskDocument {
         }
         // Always offer a row to type into; it isn't written until edited.
         if outline.isEmpty { outline.appendItem() }
+        showsListTitle = outline.title != nil
         focusedID = nil
         focusRequestID = nil
     }
