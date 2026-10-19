@@ -24,21 +24,6 @@ struct OutlineView: View {
         }
         .background(Color(nsColor: .textBackgroundColor))
         .navigationTitle(document.displayTitle)
-        .toolbar {
-            ToolbarItemGroup {
-                Button {
-                    document.decruft()
-                } label: {
-                    Label("Decruft", systemImage: "sparkles")
-                }
-                .help("Hide all done tasks (they're kept in the file)")
-
-                Toggle(isOn: Bindable(document.options).showDecrufted) {
-                    Label("Show Decrufted", systemImage: document.options.showDecrufted ? "eye" : "eye.slash")
-                }
-                .help("Show or hide decrufted tasks")
-            }
-        }
         .alert(
             "Task file error",
             isPresented: Binding(

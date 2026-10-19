@@ -65,11 +65,14 @@ struct ListfulApp: App {
                 .keyboardShortcut("3", modifiers: [.command, .option])
             Button("Task") { onFocused { $0.makeTask($1) } }
                 .keyboardShortcut("0", modifiers: [.command, .option])
-            Divider()
+        }
+        CommandGroup(before: .sidebar) {
             Button("Decruft Done Tasks") { library.document?.decruft() }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
+                .disabled(library.document == nil)
             Toggle("Show Decrufted Tasks", isOn: Bindable(library.options).showDecrufted)
                 .keyboardShortcut("h", modifiers: [.command, .shift])
+            Divider()
         }
     }
 

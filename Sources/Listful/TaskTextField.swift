@@ -6,7 +6,7 @@ enum TaskFieldCommand {
     case newTask, indent, outdent, focusPrevious, focusNext, deleteEmpty
 }
 
-/// A borderless single-line NSTextField. SwiftUI's TextField can't intercept
+/// A borderless NSTextField that wraps long titles onto further lines. SwiftUI's TextField can't intercept
 /// Tab/Shift-Tab before AppKit uses them for focus traversal, so this goes
 /// through the field editor's `doCommandBy` instead.
 struct TaskTextField: NSViewRepresentable {
@@ -32,9 +32,11 @@ struct TaskTextField: NSViewRepresentable {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = font
-        field.lineBreakMode = .byTruncatingTail
-        field.cell?.wraps = false
-        field.cell?.isScrollable = true
+        field.usesSingleLineMode = false
+        field.maximumNumberOfLines = 0
+        field.lineBreakMode = .byWordWrapping
+        field.cell?.wraps = true
+        field.cell?.isScrollable = false
         field.placeholderString = placeholder
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -73,6 +75,19 @@ struct TaskTextField: NSViewRepresentable {
                 }
             }
         }
+    }
+
+    /// Fills the offered width and grows tall enough for the wrapped text.
+    /// Measured on a copy of the cell, since the live one may be mid-edit.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView field: FocusReportingTextField, context: Context) -> CGSize? {
+        guard let cell = field.cell?.copy() as? NSCell else { return nil }
+        // A space keeps an empty row one line tall.
+        cell.attributedStringValue = NSAttributedString(string: text.isEmpty ? " " : text, attributes: [.font: font])
+        guard let width = proposal.width, width.isFinite else {
+            return cell.cellSize
+        }
+        let height = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height
+        return CGSize(width: width, height: ceil(height))
     }
 
     private func applyStyle(to field: NSTextField, editor: NSTextView?) {

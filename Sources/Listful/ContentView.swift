@@ -95,18 +95,28 @@ struct SidebarView: View {
         .dropDestination(for: URL.self) { urls, _ in
             library.link(urls)
         }
-        .toolbar {
-            ToolbarItem {
+        // A bar at the foot of the sidebar rather than a toolbar item: a
+        // sidebar toolbar item ends up in the overflow menu or vanishes
+        // depending on the detail column's toolbar.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            HStack {
                 Menu {
                     Button("New Task List…") { library.promptNewList() }
                     Button("Add Existing File…") { library.addExistingFiles() }
                 } label: {
                     Label("Add", systemImage: "plus")
+                        .labelStyle(.iconOnly)
                 } primaryAction: {
                     library.promptNewList()
                 }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
                 .help("New task list (hold for more options)")
+                Spacer()
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
         }
         .alert(
             namePromptTitle,
