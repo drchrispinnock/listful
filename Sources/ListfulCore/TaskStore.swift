@@ -17,16 +17,25 @@ public struct MarkdownFileStore: TaskStore {
 
     /// A missing file loads as an empty outline.
     public func load() throws -> Outline {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return Outline() }
-        let text = try String(contentsOf: fileURL, encoding: .utf8)
-        return MarkdownCodec.decode(text)
+        try readText().map(MarkdownCodec.decode) ?? Outline()
     }
 
     public func save(_ outline: Outline) throws {
+        try writeText(MarkdownCodec.encode(outline))
+    }
+
+    /// The file's text, or nil if it doesn't exist. Used to spot changes
+    /// made elsewhere since it was last read or written.
+    public func readText() throws -> String? {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        return try String(contentsOf: fileURL, encoding: .utf8)
+    }
+
+    public func writeText(_ text: String) throws {
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try MarkdownCodec.encode(outline).write(to: fileURL, atomically: true, encoding: .utf8)
+        try text.write(to: fileURL, atomically: true, encoding: .utf8)
     }
 }

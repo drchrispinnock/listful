@@ -22,14 +22,20 @@ final class TaskDocument {
     private(set) var showsListTitle = false
     var errorMessage: String?
 
-    @ObservationIgnored private let store: TaskStore
+    @ObservationIgnored private let store: MarkdownFileStore
     @ObservationIgnored private var pendingSave: Task<Void, Never>?
+    /// The file's text as last read or written here. If the file no longer
+    /// matches it, someone else (another app, or another Mac via iCloud)
+    /// has changed it.
+    @ObservationIgnored private var syncedText: String?
+    @ObservationIgnored private var watcher: FileWatcher?
 
     init(fileURL: URL, options: ViewOptions) {
         self.fileURL = fileURL
         self.options = options
         store = MarkdownFileStore(fileURL: fileURL)
         load()
+        watcher = FileWatcher(url: fileURL) { [weak self] in self?.checkDisk() }
     }
 
     var fileName: String { TaskLibrary.displayName(of: fileURL) }
@@ -220,7 +226,9 @@ final class TaskDocument {
 
     private func load() {
         do {
-            outline = try store.load()
+            let text = try store.readText()
+            syncedText = text
+            outline = text.map(MarkdownCodec.decode) ?? Outline()
         } catch {
             errorMessage = "Couldn't read \(fileURL.lastPathComponent): \(error.localizedDescription)"
             outline = Outline()
@@ -230,6 +238,29 @@ final class TaskDocument {
         showsListTitle = outline.title != nil
         focusedID = nil
         focusRequestID = nil
+    }
+
+    /// Picks up changes made to the file elsewhere. With no unsaved edits
+    /// the list just shows the new contents; otherwise saving now merges
+    /// the two versions.
+    func checkDisk() {
+        guard let text = try? store.readText(), text != syncedText else { return }
+        if pendingSave != nil { saveNow() } else { adopt(text) }
+    }
+
+    /// Shows `text`, the file's current contents, in place of the outline.
+    /// Rows keep their identities where they match, so the row being edited
+    /// keeps its text field and focus.
+    private func adopt(_ text: String) {
+        syncedText = text
+        var updated = MarkdownCodec.decode(text)
+        if updated.isEmpty { updated.appendItem() }
+        updated.adoptIdentities(from: outline)
+        guard updated != outline else { return }
+        outline = updated
+        if updated.title != nil { showsListTitle = true }
+        if let focusedID, outline.index(of: focusedID) == nil { self.focusedID = nil }
+        if let focusRequestID, outline.index(of: focusRequestID) == nil { self.focusRequestID = nil }
     }
 
     private func mutate(_ change: (inout Outline) -> Void) {
@@ -253,13 +284,32 @@ final class TaskDocument {
         pendingSave = nil
     }
 
-    /// Writes immediately if there are unsaved changes.
+    /// Writes immediately if there are unsaved changes. If the file was
+    /// changed elsewhere since it was read, the two versions are merged; if
+    /// they clash, the other version wins and this one is kept as a copy.
     func saveNow() {
         guard let pending = pendingSave else { return }
         pending.cancel()
         pendingSave = nil
+        let mine = MarkdownCodec.encode(outline)
         do {
-            try store.save(outline)
+            guard let disk = try store.readText(), disk != syncedText else {
+                try store.writeText(mine)
+                syncedText = mine
+                return
+            }
+            switch TextMerge.merge(base: syncedText ?? "", mine: mine, theirs: disk) {
+            case .merged(let text):
+                if text != disk { try store.writeText(text) }
+                adopt(text)
+            case .conflict:
+                let copy = TaskLibrary.conflictCopyURL(for: fileURL)
+                try MarkdownFileStore(fileURL: copy).writeText(mine)
+                adopt(disk)
+                errorMessage = "“\(fileName)” was changed somewhere else while you were editing it here, "
+                    + "and the changes clash. It now shows the other version; yours is saved beside it "
+                    + "as “\(TaskLibrary.displayName(of: copy))”."
+            }
         } catch {
             errorMessage = "Couldn't save \(fileURL.lastPathComponent): \(error.localizedDescription)"
         }

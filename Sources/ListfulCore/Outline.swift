@@ -328,6 +328,24 @@ public struct Outline: Equatable, Sendable {
         items[index].isCollapsed = collapsed
     }
 
+    /// Gives items the ids of their counterparts in `old`, so a reloaded
+    /// outline keeps row identity (and the row being edited keeps focus).
+    /// Items are matched as a longest common subsequence on depth, kind and
+    /// title; between matches, runs of the same length pair up in order,
+    /// which covers rows whose title was edited.
+    public mutating func adoptIdentities(from old: Outline) {
+        func key(_ item: TaskItem) -> String { "\(item.depth)|\(item.headingLevel ?? 0)|\(item.title)" }
+        var previousOld = 0, previousNew = 0
+        for (o, n) in Diff.matches(old.items.map(key), items.map(key)) + [(old.items.count, items.count)] {
+            if o - previousOld == n - previousNew {
+                for k in 0..<(n - previousNew) { items[previousNew + k].id = old.items[previousOld + k].id }
+            }
+            if n < items.count { items[n].id = old.items[o].id }
+            previousOld = o + 1
+            previousNew = n + 1
+        }
+    }
+
     /// Moves every done task to decrufted. Returns how many changed.
     @discardableResult
     public mutating func decruftDone() -> Int {

@@ -29,6 +29,24 @@ public struct TaskLibrary: Sendable {
         url.deletingPathExtension().lastPathComponent
     }
 
+    /// Where to keep this Mac's version of a list when it clashes with
+    /// changes made elsewhere: beside it, as "Name (conflict 2026-10-19 14-05).md",
+    /// numbered if that's taken.
+    public static func conflictCopyURL(for url: URL, date: Date = Date()) -> URL {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH-mm"
+        let base = "\(displayName(of: url)) (conflict \(formatter.string(from: date)))"
+        let folder = url.deletingLastPathComponent()
+        var name = base
+        var counter = 2
+        while FileManager.default.fileExists(atPath: folder.appending(path: name + "." + fileExtension).path) {
+            name = "\(base) \(counter)"
+            counter += 1
+        }
+        return folder.appending(path: name).appendingPathExtension(fileExtension)
+    }
+
     public func url(forName name: String) -> URL {
         folderURL.appending(path: name).appendingPathExtension(Self.fileExtension)
     }

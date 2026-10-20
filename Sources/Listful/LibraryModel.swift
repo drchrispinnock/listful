@@ -65,11 +65,15 @@ final class LibraryModel {
             MainActor.assumeIsolated { self?.document?.saveNow() }
         }
         // Linked files live in folders we don't watch, so re-check them
-        // whenever the user comes back to the app.
+        // whenever the user comes back to the app. The open list is checked
+        // too, in case its file watcher missed a change.
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshLists() }
+            MainActor.assumeIsolated {
+                self?.refreshLists()
+                self?.document?.checkDisk()
+            }
         }
     }
 
