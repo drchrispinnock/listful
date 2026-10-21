@@ -47,10 +47,42 @@ One-time setup:
 
    Your team ID is the 10-character code in brackets at the end of the
    certificate's name.
+3. **Update signing key.** Check for Updates uses
+   [Sparkle](https://sparkle-project.org), which only installs updates signed
+   with the EdDSA key whose public half is `SUPublicEDKey` in
+   `packaging/Info.plist`. The private key lives in the login keychain (account
+   `listful`). On a new Mac, export it from the old one and import it:
+
+   ```sh
+   .build/artifacts/sparkle/Sparkle/bin/generate_keys --account listful -x ~/listful-sparkle.key   # silent; check the file exists
+   .build/artifacts/sparkle/Sparkle/bin/generate_keys --account listful -f ~/listful-sparkle.key
+   ```
+
+   Keep a copy somewhere safe: if it's lost, existing installs can't be
+   updated and users have to download the next version by hand.
+
+Like the certificate's private key, the notarization profile and update key
+are per keychain, so each Mac you release from needs all three.
 
 Then:
 
 ```sh
-scripts/release            # signed + notarized dist/Listful-<version>.dmg
+scripts/release            # signed + notarized dist/Listful-<version>.dmg, plus dist/appcast.xml
 scripts/release --adhoc    # local signature only, to test the packaging
 ```
+
+Before releasing, bump `VERSION` and add a `## <version>` section to
+`CHANGELOG.md` describing every user-visible change in detail; the script won't
+build without one. Those notes go on the GitHub release and in the app's update
+window. Then tag and upload the DMG and the appcast:
+
+```sh
+git tag v$(cat VERSION) && git push origin v$(cat VERSION)
+gh release create v$(cat VERSION) dist/Listful-*.dmg dist/Listful-*.dmg.sha256 dist/appcast.xml \
+    --title "Listful $(cat VERSION)" --notes-file dist/release-notes.md
+```
+
+The app's update feed is `releases/latest/download/appcast.xml` of that repo
+(`RELEASE_REPO`, default `drchrispinnock/listful`), so the newest
+non-prerelease release is always the one offered. The repo must be public for
+the feed and downloads to work.

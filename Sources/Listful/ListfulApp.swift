@@ -8,10 +8,12 @@ struct ListfulApp: App {
     // Xcode, so it won't build with the Command Line Tools. The App value is
     // created once, so a plain stored property is equivalent.
     private let library: LibraryModel
+    private let updater: Updater
 
     init() {
         SettingsMigration.run()
         library = LibraryModel()
+        updater = Updater()
     }
 
     var body: some Scene {
@@ -23,7 +25,7 @@ struct ListfulApp: App {
         .commands { commands }
 
         Settings {
-            SettingsView(library: library)
+            SettingsView(library: library, updater: updater)
         }
     }
 
@@ -31,6 +33,10 @@ struct ListfulApp: App {
         SidebarCommands()
         CommandGroup(replacing: .appInfo) {
             Button("About Listful") { AboutPanel.show() }
+            if updater.isAvailable {
+                Button("Check for Updates…") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheckForUpdates)
+            }
         }
         CommandGroup(replacing: .newItem) {
             Button("New Task List…") { library.promptNewList() }

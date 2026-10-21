@@ -7,11 +7,14 @@ let package = Package(
     products: [
         .executable(name: "Listful", targets: ["Listful"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.6"),
+    ],
     targets: [
         .target(name: "ListfulCore"),
         .executableTarget(
             name: "Listful",
-            dependencies: ["ListfulCore"],
+            dependencies: ["ListfulCore", .product(name: "Sparkle", package: "Sparkle")],
             resources: [.copy("Resources/AppIcon.png")]
         ),
         .testTarget(name: "ListfulCoreTests", dependencies: ["ListfulCore"]),

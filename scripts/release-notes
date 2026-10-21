@@ -1,0 +1,55 @@
+#!/bin/sh
+# Prints one version's section of CHANGELOG.md (without its heading).
+#
+#   scripts/release-notes 0.2           Markdown, for the GitHub release
+#   scripts/release-notes --html 0.2    HTML, for the Sparkle appcast
+#
+# Exits 1 if CHANGELOG.md has no "## <version>" section. The HTML conversion
+# covers what the changelog uses: paragraphs, "- " bullets (wrapped lines
+# continue them), **bold** and `code`.
+set -eu
+
+cd "$(dirname "$0")/.."
+
+html=false
+[ "${1:-}" = "--html" ] && { html=true; shift; }
+version=${1:?usage: scripts/release-notes [--html] <version>}
+
+section=$(awk -v v="$version" '
+    /^## / { inside = ($2 == v) ; if (inside) found = 1; next }
+    inside { print }
+    END { exit !found }
+' CHANGELOG.md) || { echo "CHANGELOG.md has no \"## $version\" section." >&2; exit 1; }
+
+# Trim leading and trailing blank lines.
+section=$(printf '%s\n' "$section" | sed -e '/./,$!d' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}')
+
+if ! $html; then
+    printf '%s\n' "$section"
+    exit 0
+fi
+
+printf '%s\n' "$section" | awk '
+    function inline(s) {
+        gsub(/&/, "\\&amp;", s); gsub(/</, "\\&lt;", s); gsub(/>/, "\\&gt;", s)
+        while (match(s, /\*\*[^*]+\*\*/))
+            s = substr(s, 1, RSTART - 1) "<b>" substr(s, RSTART + 2, RLENGTH - 4) "</b>" substr(s, RSTART + RLENGTH)
+        while (match(s, /`[^`]+`/))
+            s = substr(s, 1, RSTART - 1) "<code>" substr(s, RSTART + 1, RLENGTH - 2) "</code>" substr(s, RSTART + RLENGTH)
+        return s
+    }
+    function flush() {
+        if (text == "") return
+        if (kind == "li") { if (!inlist) { print "<ul>"; inlist = 1 } }
+        else if (inlist) { print "</ul>"; inlist = 0 }
+        print "<" kind ">" inline(text) "</" kind ">"
+        text = ""
+    }
+    /^- / { flush(); kind = "li"; text = substr($0, 3); next }
+    /^$/ { flush(); if (inlist) { print "</ul>"; inlist = 0 }; next }
+    {
+        sub(/^ +/, "")
+        if (text == "") { kind = "p"; text = $0 } else text = text " " $0
+    }
+    END { flush(); if (inlist) print "</ul>" }
+'

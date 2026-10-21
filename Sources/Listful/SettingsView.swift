@@ -8,6 +8,7 @@ enum DisplaySettings {
 
 struct SettingsView: View {
     let library: LibraryModel
+    let updater: Updater
     @AppStorage(DisplaySettings.showTick) private var showTick = true
     @AppStorage(DisplaySettings.showStrikethrough) private var showStrikethrough = true
 
@@ -37,6 +38,14 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("Task lists")
+            }
+
+            if updater.isAvailable {
+                Section {
+                    Toggle("Automatically check for updates", isOn: Bindable(updater).automaticallyChecks)
+                } header: {
+                    Text("Updates")
+                }
             }
         }
         .formStyle(.grouped)

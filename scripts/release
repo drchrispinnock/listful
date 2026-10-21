@@ -8,8 +8,15 @@
 #   SIGN_IDENTITY    codesign identity; defaults to the first "Developer ID Application" in the keychain
 #   NOTARY_PROFILE   notarytool keychain profile (default: listful-notary), created once with
 #                    xcrun notarytool store-credentials listful-notary --apple-id <id> --team-id <team>
+#   RELEASE_REPO     GitHub repo the releases are published to (default: drchrispinnock/listful);
+#                    the app's update feed is that repo's latest-release appcast.xml
 #
 # The version comes from VERSION; the build number is the git commit count.
+# CHANGELOG.md must have a "## <VERSION>" section: it becomes dist/release-notes.md
+# (for the GitHub release) and the notes shown in the app's update window.
+# Besides the DMG it writes dist/appcast.xml, the Sparkle update feed, signed with the
+# EdDSA key in the keychain (account "listful", made by Sparkle's generate_keys). Upload
+# both to the GitHub release tagged v<VERSION>.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -24,8 +31,15 @@ dist=dist
 app="$dist/Listful.app"
 dmg="$dist/Listful-$version.dmg"
 profile=${NOTARY_PROFILE:-listful-notary}
+repo=${RELEASE_REPO:-drchrispinnock/listful}
+feed="https://github.com/$repo/releases/latest/download/appcast.xml"
+sparkle_bin=.build/artifacts/sparkle/Sparkle/bin
 
 step() { printf '\n==> %s\n' "$*"; }
+
+# Fail before the long build if the changelog hasn't been written.
+notes=$(scripts/release-notes "$version")
+notes_html=$(scripts/release-notes --html "$version")
 
 if $adhoc; then
     identity=-
@@ -50,9 +64,18 @@ rm -rf "$dist"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin/Listful" "$app/Contents/MacOS/Listful"
 sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" -e "s/__YEAR__/$year/" \
-    packaging/Info.plist > "$app/Contents/Info.plist"
+    -e "s|__FEED_URL__|$feed|" packaging/Info.plist > "$app/Contents/Info.plist"
 plutil -lint -s "$app/Contents/Info.plist"
 printf 'APPL????' > "$app/Contents/PkgInfo"
+
+# Sparkle (Check for Updates). SwiftPM links it via @rpath next to the binary;
+# in the bundle it lives in Contents/Frameworks. Its XPC services are only
+# needed by sandboxed apps, which Listful isn't.
+fw="$app/Contents/Frameworks/Sparkle.framework"
+mkdir -p "$app/Contents/Frameworks"
+ditto "$bin/Sparkle.framework" "$fw"
+rm -rf "$fw/XPCServices" "$fw/Versions/B/XPCServices"
+install_name_tool -add_rpath @executable_path/../Frameworks "$app/Contents/MacOS/Listful"
 
 iconset=$(mktemp -d)/AppIcon.iconset
 mkdir -p "$iconset"
@@ -68,10 +91,15 @@ rm -rf "$(dirname "$iconset")"
 
 step "Signing app (hardened runtime)"
 if $adhoc; then
-    codesign --force --options runtime --sign - "$app"
+    sign() { codesign --force --options runtime --sign - "$@"; }
 else
-    codesign --force --options runtime --timestamp --sign "$identity" "$app"
+    sign() { codesign --force --options runtime --timestamp --sign "$identity" "$@"; }
 fi
+# Inside out: Sparkle's helpers, the framework, then the app.
+sign "$fw/Versions/B/Autoupdate"
+sign "$fw/Versions/B/Updater.app"
+sign "$fw"
+sign "$app"
 codesign --verify --strict --verbose=2 "$app"
 
 step "Creating $dmg"
@@ -105,5 +133,37 @@ else
 fi
 
 (cd "$dist" && shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256")
+printf '%s\n' "$notes" > "$dist/release-notes.md"
+
+if $adhoc; then
+    step "Skipping appcast.xml: ad-hoc builds aren't published as updates"
+else
+    step "Writing $dist/appcast.xml (feed: $feed)"
+    # Prints: sparkle:edSignature="…" length="…"
+    signature=$("$sparkle_bin/sign_update" --account listful "$dmg")
+    cat > "$dist/appcast.xml" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Listful</title>
+    <item>
+      <title>Listful $version</title>
+      <pubDate>$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
+      <sparkle:version>$build</sparkle:version>
+      <sparkle:shortVersionString>$version</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+$notes_html
+]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/$repo/releases/tag/v$version</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/$repo/releases/download/v$version/$(basename "$dmg")"
+                 type="application/octet-stream" $signature/>
+    </item>
+  </channel>
+</rss>
+EOF
+    xmllint --noout "$dist/appcast.xml"
+fi
+
 step "Done: $dmg"
 cat "$dist/$(basename "$dmg").sha256"
