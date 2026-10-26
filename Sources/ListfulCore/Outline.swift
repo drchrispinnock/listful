@@ -276,6 +276,62 @@ public struct Outline: Equatable, Sendable {
         return newIndex
     }
 
+    /// The depths the subtree at `index` could take if moved to just before
+    /// `destination` (an index into `items` as they are now; `items.count`
+    /// means the end). Nil for a heading, or a destination inside the subtree.
+    /// The range runs from the depth of the item that would follow (so it
+    /// isn't adopted as a child) to one deeper than the item that would precede.
+    public func moveDepths(at index: Int, to destination: Int) -> ClosedRange<Int>? {
+        let end = subtreeEnd(index)
+        guard !items[index].isHeading, destination <= index || destination >= end,
+              destination <= items.count
+        else { return nil }
+        let previous = destination == end ? index - 1 : destination - 1
+        let next = destination == index ? end : destination
+        let maxDepth = previous < 0 || items[previous].isHeading ? 0 : items[previous].depth + 1
+        let minDepth = next < items.count && !items[next].isHeading ? items[next].depth : 0
+        return minDepth...maxDepth
+    }
+
+    /// The gap a dragged row is dropped into, in terms of the visible rows
+    /// either side of it (indices into `items`, neither inside the dragged
+    /// subtree): where the subtree would go and the depths it may take.
+    /// Beyond `moveDepths`, the depth is capped by the visible row above, so a
+    /// drop below a collapsed task can make it that task's last child but
+    /// can't burrow deeper into what's hidden.
+    public func dropTarget(
+        moving index: Int, afterVisible previous: Int?, beforeVisible next: Int?
+    ) -> (destination: Int, depths: ClosedRange<Int>)? {
+        let destination = next ?? items.count
+        guard let depths = moveDepths(at: index, to: destination) else { return nil }
+        let visibleMax = previous.map { items[$0].isHeading ? 0 : items[$0].depth + 1 } ?? 0
+        let capped = depths.lowerBound...max(depths.lowerBound, min(depths.upperBound, visibleMax))
+        return (destination, capped)
+    }
+
+    /// Moves the item and its subtree to just before `destination` (see
+    /// `moveDepths`), at `depth`, keeping the subtree's shape. Collapsed
+    /// parents and headings it lands under are expanded so it stays visible.
+    /// Returns the item's new index, or nil if the move isn't allowed.
+    @discardableResult
+    public mutating func move(at index: Int, to destination: Int, depth: Int) -> Int? {
+        guard let depths = moveDepths(at: index, to: destination), depths.contains(depth) else { return nil }
+        let end = subtreeEnd(index)
+        var block = Array(items[index..<end])
+        let shift = depth - block[0].depth
+        for i in block.indices { block[i].depth += shift }
+        items.removeSubrange(index..<end)
+        let newIndex = destination > index ? destination - block.count : destination
+        items.insert(contentsOf: block, at: newIndex)
+        var ancestor = parentIndex(newIndex)
+        while let a = ancestor {
+            items[a].isCollapsed = false
+            ancestor = parentIndex(a)
+        }
+        reveal(newIndex)
+        return newIndex
+    }
+
     /// Turns the item into a heading of `level`. A nested task is first
     /// outdented to the top level, and its children move up a level since
     /// headings can't have children. Returns the item's new index.

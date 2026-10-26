@@ -4,6 +4,9 @@ import ListfulCore
 struct OutlineView: View {
     @Bindable var document: TaskDocument
 
+    /// The coordinate space row frames and drags are measured in.
+    static let space = "outline"
+
     var body: some View {
         let rows = document.visibleItems
         ScrollView {
@@ -20,6 +23,11 @@ struct OutlineView: View {
                     Button("New Task") { document.appendTask() }
                         .padding(.top, 8)
                 }
+            }
+            .coordinateSpace(.named(Self.space))
+            .overlay(alignment: .topLeading) { dropIndicator }
+            .onPreferenceChange(RowFramesKey.self) { frames in
+                MainActor.assumeIsolated { document.rowFrames = frames }
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -39,6 +47,32 @@ struct OutlineView: View {
             Text(message)
         }
     }
+
+    /// Where a dragged row would land: a line at the gap, indented to the
+    /// depth it would take, starting where that depth's bullet would be.
+    @ViewBuilder private var dropIndicator: some View {
+        if let drag = document.drag {
+            HStack(spacing: 0) {
+                Circle()
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .frame(width: 8, height: 8)
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+            .padding(.leading, CGFloat(drag.depth) * TaskRow.indentWidth + TaskRow.bulletOffset)
+            .offset(y: drag.gapY - 4)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+/// Collects each row's frame, keyed by item id, for drag-and-drop.
+struct RowFramesKey: PreferenceKey {
+    static let defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
 }
 
 struct TaskRow: View {
@@ -47,7 +81,9 @@ struct TaskRow: View {
     @AppStorage(DisplaySettings.showTick) private var showTick = true
     @AppStorage(DisplaySettings.showStrikethrough) private var showStrikethrough = true
 
-    private static let indentWidth: CGFloat = 22
+    static let indentWidth: CGFloat = 22
+    /// From a row's indented edge to its bullet: the disclosure column and spacing.
+    static let bulletOffset: CGFloat = 20
 
     var body: some View {
         HStack(spacing: 6) {
@@ -70,7 +106,19 @@ struct TaskRow: View {
         .padding(.leading, CGFloat(item.depth) * Self.indentWidth)
         .padding(.top, topPadding)
         .padding(.bottom, 2)
-        .opacity(item.state == .decrufted ? 0.45 : 1)
+        .opacity(opacity)
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(
+                    key: RowFramesKey.self,
+                    value: [item.id: geometry.frame(in: .named(OutlineView.space))])
+            }
+        }
+    }
+
+    private var opacity: Double {
+        if document.drag?.movingIDs.contains(item.id) == true { return 0.35 }
+        return item.state == .decrufted ? 0.45 : 1
     }
 
     private var font: NSFont {
@@ -111,20 +159,39 @@ struct TaskRow: View {
     }
 
     /// A tick box, or a plain bullet when ticks are turned off in Settings.
-    /// Either way, clicking it toggles done.
+    /// Either way, clicking it toggles done, and dragging it moves the task
+    /// (with its subtree): up and down to a new place, sideways to change
+    /// how deeply it's nested.
     private var checkbox: some View {
         let isTicked = showTick && item.state != .open
-        return Button {
-            document.toggleDone(item.id)
-        } label: {
-            Image(systemName: symbol)
-                .imageScale(showTick ? .medium : .small)
-                .foregroundStyle(isTicked ? Color.accentColor : Color.secondary)
-                .frame(width: 16, height: 16)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(item.state == .open ? "Mark done" : "Mark open")
+        return Image(systemName: symbol)
+            .imageScale(showTick ? .medium : .small)
+            .foregroundStyle(isTicked ? Color.accentColor : Color.secondary)
+            .frame(width: 16, height: 16)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(OutlineView.space))
+                    .onChanged { value in
+                        // A small wobble is still a click.
+                        let moved = abs(value.translation.width) > 3 || abs(value.translation.height) > 3
+                        guard document.drag?.id == item.id || moved else { return }
+                        document.updateDrag(
+                            item.id, location: value.location, translation: value.translation,
+                            indentWidth: Self.indentWidth)
+                    }
+                    .onEnded { _ in
+                        if document.drag?.id == item.id {
+                            document.endDrag()
+                        } else {
+                            document.toggleDone(item.id)
+                        }
+                    }
+            )
+            .help(item.state == .open ? "Mark done; drag to move" : "Mark open; drag to move")
+            .accessibilityElement()
+            .accessibilityLabel(item.state == .open ? "Mark done" : "Mark open")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { document.toggleDone(item.id) }
     }
 
     private var symbol: String {

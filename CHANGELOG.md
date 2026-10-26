@@ -4,6 +4,15 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
+## Unreleased
+
+- **Drag tasks to move them.** Press on a task's dot and drag it up or down
+  to move it, along with any tasks nested under it. A line shows where it
+  will land; drag left or right to change how deeply it's nested there.
+  Dropping it inside a collapsed task or heading opens it up so the task
+  stays in view. A click on the dot without dragging still marks the task
+  done.
+
 ## 0.2 — 2026-10-21
 
 - **Check for Updates.** Listful ▸ Check for Updates… looks for a newer

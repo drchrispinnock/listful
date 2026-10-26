@@ -146,6 +146,56 @@ final class TaskDocument {
         mutate { $0.toggleDone(at: i) }
     }
 
+    // MARK: - Dragging rows
+
+    /// A row being dragged by its bullet, with where it would land.
+    struct RowDrag: Equatable {
+        let id: UUID
+        /// The dragged row and its subtree, dimmed while they're dragged.
+        let movingIDs: Set<UUID>
+        var destination: Int
+        var depth: Int
+        /// The top of the gap it would drop into, in the outline's coordinates.
+        var gapY: CGFloat
+    }
+
+    private(set) var drag: RowDrag?
+    /// Each visible row's frame in the outline's coordinates, reported by the
+    /// rows. Not observed: it changes on every layout and only drags read it.
+    @ObservationIgnored var rowFrames: [UUID: CGRect] = [:]
+
+    /// Follows a drag of `id`'s bullet: the gap is the one nearest the
+    /// pointer, among the rows outside the dragged subtree, and dragging
+    /// sideways by an indent changes the depth by one.
+    func updateDrag(_ id: UUID, location: CGPoint, translation: CGSize, indentWidth: CGFloat) {
+        guard let index = outline.index(of: id) else { return }
+        let end = outline.subtreeEnd(index)
+        let rows = outline.visibleIndices(showDecrufted: options.showDecrufted)
+            .filter { $0 < index || $0 >= end }
+        func frame(_ i: Int) -> CGRect? { rowFrames[outline.items[i].id] }
+
+        let nextPosition = rows.firstIndex { (frame($0)?.midY ?? 0) > location.y }
+        let next = nextPosition.map { rows[$0] }
+        let previous = (nextPosition ?? rows.count) > 0 ? rows[(nextPosition ?? rows.count) - 1] : nil
+        guard let target = outline.dropTarget(moving: index, afterVisible: previous, beforeVisible: next)
+        else { return }
+
+        let wanted = outline.items[index].depth + Int((translation.width / indentWidth).rounded())
+        let depth = min(max(wanted, target.depths.lowerBound), target.depths.upperBound)
+        let gapY = next.flatMap(frame)?.minY ?? previous.flatMap(frame)?.maxY ?? 0
+        let movingIDs = drag?.id == id ? drag!.movingIDs : Set(outline.items[index..<end].map(\.id))
+        let newDrag = RowDrag(id: id, movingIDs: movingIDs, destination: target.destination, depth: depth, gapY: gapY)
+        if newDrag != drag { drag = newDrag }
+    }
+
+    /// Drops the dragged row where `updateDrag` last put it.
+    func endDrag() {
+        guard let drag else { return }
+        self.drag = nil
+        guard let i = outline.index(of: drag.id) else { return }
+        mutate { $0.move(at: i, to: drag.destination, depth: drag.depth) }
+    }
+
     func setCollapsed(_ collapsed: Bool, for id: UUID) {
         guard let i = outline.index(of: id), outline.canCollapse(i) else { return }
         mutate { $0.setCollapsed(collapsed, at: i) }
