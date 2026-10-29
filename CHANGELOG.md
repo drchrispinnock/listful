@@ -4,7 +4,7 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
-## Unreleased
+## 0.2.1 — 2026-10-29
 
 - **Drag tasks to move them.** Press on a task's dot and drag it up or down
   to move it, along with any tasks nested under it. A line shows where it
@@ -12,6 +12,13 @@ version that has no section here.
   Dropping it inside a collapsed task or heading opens it up so the task
   stays in view. A click on the dot without dragging still marks the task
   done.
+- **The task you're editing stays in view.** In a long list, pressing Return
+  at the bottom of the window, arrowing down past its edge, or typing until
+  a task wraps onto another line now scrolls the list just enough to keep
+  that task visible. Before, the cursor could disappear below the window.
+- **App icon fixed on macOS 26 and later.** The icon was being shown shrunk
+  inside a grey square in the Dock and Finder. It now fills its space like
+  other apps' icons.
 
 ## 0.2 — 2026-10-21
 

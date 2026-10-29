@@ -9,28 +9,36 @@ struct OutlineView: View {
 
     var body: some View {
         let rows = document.visibleItems
-        ScrollView {
-            // Not lazy: every row's text field must exist so focus can move to it.
-            VStack(alignment: .leading, spacing: 2) {
-                if document.showsListTitle {
-                    ListTitleField(document: document)
-                        .padding(.bottom, 10)
+        ScrollViewReader { proxy in
+            ScrollView {
+                // Not lazy: every row's text field must exist so focus can move to it.
+                VStack(alignment: .leading, spacing: 2) {
+                    if document.showsListTitle {
+                        ListTitleField(document: document)
+                            .padding(.bottom, 10)
+                    }
+                    ForEach(rows) { item in
+                        TaskRow(item: item, document: document)
+                    }
+                    if rows.isEmpty {
+                        Button("New Task") { document.appendTask() }
+                            .padding(.top, 8)
+                    }
                 }
-                ForEach(rows) { item in
-                    TaskRow(item: item, document: document)
+                .coordinateSpace(.named(Self.space))
+                .overlay(alignment: .topLeading) { dropIndicator }
+                .onPreferenceChange(RowFramesKey.self) { frames in
+                    MainActor.assumeIsolated { document.rowFrames = frames }
                 }
-                if rows.isEmpty {
-                    Button("New Task") { document.appendTask() }
-                        .padding(.top, 8)
-                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .coordinateSpace(.named(Self.space))
-            .overlay(alignment: .topLeading) { dropIndicator }
-            .onPreferenceChange(RowFramesKey.self) { frames in
-                MainActor.assumeIsolated { document.rowFrames = frames }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // AppKit's own scroll-to-caret doesn't reach through SwiftUI's
+            // ScrollView, so keep the row being edited in view: when focus moves
+            // (Return at the bottom, arrowing down) and when its text grows onto
+            // another line.
+            .onChange(of: document.focusedID) { scrollToFocused(proxy) }
+            .onChange(of: rows.first { $0.id == document.focusedID }?.title) { scrollToFocused(proxy) }
         }
         .background(Color(nsColor: .textBackgroundColor))
         .navigationTitle(document.displayTitle)
@@ -46,6 +54,13 @@ struct OutlineView: View {
         } message: { message in
             Text(message)
         }
+    }
+
+    /// Scrolls the minimum needed to show the focused row whole. Deferred
+    /// so a new or re-wrapped row has been laid out first.
+    private func scrollToFocused(_ proxy: ScrollViewProxy) {
+        guard let id = document.focusedID else { return }
+        DispatchQueue.main.async { proxy.scrollTo(id) }
     }
 
     /// Where a dragged row would land: a line at the gap, indented to the
