@@ -293,9 +293,16 @@ final class TaskDocument {
     /// Picks up changes made to the file elsewhere. With no unsaved edits
     /// the list just shows the new contents; otherwise saving now merges
     /// the two versions.
+    /// The file is read off the main thread, since iCloud can stall a read
+    /// for seconds; if this Mac saved meanwhile, the read is stale and dropped.
     func checkDisk() {
-        guard let text = try? store.readText(), text != syncedText else { return }
-        if pendingSave != nil { saveNow() } else { adopt(text) }
+        let store = store
+        let before = syncedText
+        Task {
+            let text = await Task.detached { try? store.readText() }.value
+            guard let text, syncedText == before, text != syncedText else { return }
+            if pendingSave != nil { saveNow() } else { adopt(text) }
+        }
     }
 
     /// Shows `text`, the file's current contents, in place of the outline.

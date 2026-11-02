@@ -4,6 +4,16 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
+## 0.2.2 — 2026-11-02
+
+- **No more spinning beachball when switching back to Listful.** Coming
+  back to the app could freeze it for a second or more while it re-read
+  your lists to refresh their names in the sidebar, especially for lists
+  kept in iCloud Drive while it was syncing them. Those reads now happen in
+  the background, so the window stays responsive and the sidebar names
+  update a moment later. Checking whether the open list was changed on
+  another Mac or in another app works the same way.
+
 ## 0.2.1 — 2026-10-29
 
 - **Drag tasks to move them.** Press on a task's dot and drag it up or down

@@ -50,6 +50,7 @@ final class LibraryModel {
     @ObservationIgnored private var folderWatcher: DispatchSourceFileSystemObject?
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?
     @ObservationIgnored private var activationObserver: NSObjectProtocol?
+    @ObservationIgnored private var titlesTask: Task<Void, Never>?
 
     init() {
         let folder = UserDefaults.standard.url(forKey: Keys.folder) ?? Self.defaultFolderURL
@@ -157,18 +158,29 @@ final class LibraryModel {
         folderWatcher = source
     }
 
-    /// Re-reads each list's `#` title. Lists are small, so reading every file
-    /// on each folder change is cheap enough.
+    /// Re-reads each list's `#` title. Lists are small, but a read can stall
+    /// for seconds while iCloud syncs the file, so it's done off the main
+    /// thread; a newer refresh supersedes one still running.
     private func refreshTitles() {
-        var current: [URL: String] = [:]
-        for url in lists + linkedFiles where !missingFiles.contains(url) {
+        let urls = (lists + linkedFiles).filter { !missingFiles.contains($0) }
+        titlesTask?.cancel()
+        titlesTask = Task {
+            let current = await Task.detached { Self.readTitles(of: urls) }.value
+            guard !Task.isCancelled else { return }
+            if current != titles { titles = current }
+        }
+    }
+
+    nonisolated private static func readTitles(of urls: [URL]) -> [URL: String] {
+        var titles: [URL: String] = [:]
+        for url in urls {
             guard let text = try? String(contentsOf: url, encoding: .utf8),
                   let title = MarkdownCodec.title(in: text)?.trimmingCharacters(in: .whitespaces),
                   !title.isEmpty
             else { continue }
-            current[url] = title
+            titles[url] = title
         }
-        if current != titles { titles = current }
+        return titles
     }
 
     /// The sidebar name for a list: its `#` title (live, for the open list)
