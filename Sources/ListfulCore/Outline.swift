@@ -53,10 +53,13 @@ public struct Outline: Equatable, Sendable {
     /// The list's own title, stored as a `#` heading on the file's first line.
     /// Not an item; nil when the file doesn't start with one.
     public var title: String?
+    /// Set when this list is a repeating checklist's template.
+    public var schedule: RepeatSchedule?
 
-    public init(title: String? = nil, items: [TaskItem] = []) {
+    public init(title: String? = nil, items: [TaskItem] = [], schedule: RepeatSchedule? = nil) {
         self.title = title
         self.items = items
+        self.schedule = schedule
         var previousDepth = -1
         for i in self.items.indices {
             if let level = self.items[i].headingLevel {

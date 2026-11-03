@@ -54,6 +54,25 @@ final class TaskDocument {
         mutate { $0.title = newTitle }
     }
 
+    // MARK: - Repeating checklists
+
+    /// When true, the sheet for editing this template's schedule is shown,
+    /// editing `scheduleDraft`.
+    var isEditingSchedule = false
+    var scheduleDraft = RepeatSchedule()
+
+    func editSchedule() {
+        guard let schedule = outline.schedule else { return }
+        scheduleDraft = schedule
+        isEditingSchedule = true
+    }
+
+    func commitSchedule() {
+        isEditingSchedule = false
+        guard scheduleDraft != outline.schedule else { return }
+        mutate { $0.schedule = scheduleDraft }
+    }
+
     // MARK: - Rows
 
     var visibleItems: [TaskItem] {

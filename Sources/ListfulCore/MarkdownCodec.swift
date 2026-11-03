@@ -12,6 +12,8 @@ import Foundation
 ///
 ///     - [ ] Another task
 ///
+/// A repeating checklist's template has its schedule in a marker line of its
+/// own after the title (see `RepeatSchedule`).
 /// A `#` heading on the first line is the list's title. Other `#`, `##` and
 /// `###` lines at the left margin are headings. Nesting is two spaces per
 /// level. State the checkbox can't express (decrufted, collapsed) goes in a
@@ -33,6 +35,9 @@ public enum MarkdownCodec {
         if let title = outline.title {
             lines.append(headingLine(level: 1, title: title))
             previousWasHeading = true
+        }
+        if let schedule = outline.schedule {
+            lines.append("\(markerPrefix) \(schedule.markerWords.joined(separator: " ")) \(markerSuffix)")
         }
 
         for (i, item) in outline.items.enumerated() {
@@ -61,6 +66,7 @@ public enum MarkdownCodec {
 
     public static func decode(_ text: String) -> Outline {
         var title: String?
+        var schedule: RepeatSchedule?
         var items: [TaskItem] = []
         var sawContent = false
         // Indent widths of the current chain of ancestors.
@@ -72,6 +78,11 @@ public enum MarkdownCodec {
             guard !rest.isEmpty else { continue }
 
             let flags = takeMarker(from: &rest) ?? []
+            // A marker on a line of its own is the list's repeat schedule.
+            if rest.isEmpty, schedule == nil, let parsed = RepeatSchedule(markerWords: flags) {
+                schedule = parsed
+                continue
+            }
             let isFirstLine = !sawContent
             sawContent = true
 
@@ -106,7 +117,7 @@ public enum MarkdownCodec {
 
             items.append(TaskItem(title: rest, state: state, depth: depth, isCollapsed: flags.contains("collapsed")))
         }
-        return Outline(title: title, items: items)
+        return Outline(title: title, items: items, schedule: schedule)
     }
 
     /// The list title a file would decode to, without decoding the rest.
@@ -116,6 +127,7 @@ public enum MarkdownCodec {
             var rest = content.trimmingCharacters(in: .whitespaces)
             guard !rest.isEmpty else { continue }
             _ = takeMarker(from: &rest)
+            if rest.isEmpty { continue }
             guard indent == 0, let heading = parseHeading(rest), heading.level == 1 else { return nil }
             return heading.text
         }

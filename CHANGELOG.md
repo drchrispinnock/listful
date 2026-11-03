@@ -4,6 +4,32 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
+## Unreleased
+
+- **Repeating checklists.** File ▸ New Repeating Checklist… (Cmd-Shift-N)
+  makes a template: name it, choose how often it repeats, then fill in its
+  tasks. It can repeat every day, every weekday, weekly on the days you
+  pick, monthly on a given day (or the last day), quarterly, or yearly on a
+  date. Templates are listed under Repeating in the sidebar, and a bar at
+  the top of each one shows its schedule, with Edit… to change it.
+- **A fresh copy each time it's due.** When a new period starts, Listful
+  copies the template into a new list named with the date, such as
+  "Morning Routine 2026-11-03", titled "Morning Routine — Tue 3 Nov". It
+  checks when it opens, when you switch back to it, at midnight and when
+  the Mac wakes. If it hasn't run for a while, it makes only the current
+  period's copy, not one for every day you missed. Earlier copies stay in
+  the sidebar as they were.
+- **Carry over unfinished tasks.** Turn this on for a template, and each new
+  copy starts with the open tasks left in the previous copy. They're moved,
+  not duplicated, so yesterday's list ends up showing what you did. Done
+  subtasks travel with their unfinished parent. A task the template already
+  has isn't added twice, and tasks under a heading stay under that heading.
+  If you were looking at the previous copy, Listful switches to the new
+  one.
+- Templates are ordinary Markdown files in a Templates folder inside your
+  task-list folder, so they sync with iCloud like your lists. The schedule
+  is a hidden comment under the title.
+
 ## 0.2.2 — 2026-11-02
 
 - **No more spinning beachball when switching back to Listful.** Coming

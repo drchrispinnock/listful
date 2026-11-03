@@ -28,6 +28,8 @@ final class LibraryModel {
     let options = ViewOptions()
     private(set) var folderURL: URL
     private(set) var lists: [URL] = []
+    /// Repeating checklists' templates, from the folder's Templates subfolder.
+    private(set) var templates: [URL] = []
     /// Task list files outside the folder, edited in place. Persisted as paths.
     private(set) var linkedFiles: [URL] = []
     /// Linked files that no longer exist at their saved path.
@@ -36,7 +38,12 @@ final class LibraryModel {
     private(set) var titles: [URL: String] = [:]
     private(set) var document: TaskDocument?
     var selection: URL? {
-        didSet { if selection != oldValue { openSelection() } }
+        didSet {
+            guard selection != oldValue else { return }
+            openSelection()
+            // Leaving a template is when a newly written one first gets copied.
+            if let oldValue, templates.contains(oldValue) { makeDueCopies() }
+        }
     }
 
     /// When set, the sidebar shows a name field for creating or renaming a list.
@@ -44,18 +51,28 @@ final class LibraryModel {
     var nameDraft = ""
     /// A list waiting for the user to confirm moving it to the Trash.
     var pendingTrash: URL?
+    /// When true, the sheet for a new repeating checklist is shown,
+    /// editing `nameDraft` and `scheduleDraft`.
+    var isCreatingRepeating = false
+    var scheduleDraft = RepeatSchedule()
     var errorMessage: String?
 
     @ObservationIgnored private var library: TaskLibrary
-    @ObservationIgnored private var folderWatcher: DispatchSourceFileSystemObject?
+    @ObservationIgnored private var templateLibrary: TaskLibrary
+    @ObservationIgnored private var folderWatchers: [DispatchSourceFileSystemObject] = []
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?
     @ObservationIgnored private var activationObserver: NSObjectProtocol?
     @ObservationIgnored private var titlesTask: Task<Void, Never>?
+    @ObservationIgnored private var dayObserver: NSObjectProtocol?
+    @ObservationIgnored private var wakeObserver: NSObjectProtocol?
+    @ObservationIgnored private var isMakingCopies = false
+    @ObservationIgnored private var needsCopiesAgain = false
 
     init() {
         let folder = UserDefaults.standard.url(forKey: Keys.folder) ?? Self.defaultFolderURL
         folderURL = folder
         library = TaskLibrary(folderURL: folder)
+        templateLibrary = TaskLibrary(folderURL: library.templatesFolderURL)
         linkedFiles = (UserDefaults.standard.stringArray(forKey: Keys.linkedFiles) ?? [])
             .map { URL(filePath: $0) }
         loadFolder(restoring: UserDefaults.standard.string(forKey: Keys.selectedList))
@@ -74,7 +91,20 @@ final class LibraryModel {
             MainActor.assumeIsolated {
                 self?.refreshLists()
                 self?.document?.checkDisk()
+                self?.makeDueCopies()
             }
+        }
+        // A new day or a wake from sleep can start a repeating checklist's
+        // next period while the app is already in front.
+        dayObserver = NotificationCenter.default.addObserver(
+            forName: .NSCalendarDayChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.makeDueCopies() }
+        }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.makeDueCopies() }
         }
     }
 
@@ -93,6 +123,7 @@ final class LibraryModel {
         closeDocument()
         folderURL = url
         library = TaskLibrary(folderURL: url)
+        templateLibrary = TaskLibrary(folderURL: library.templatesFolderURL)
         UserDefaults.standard.set(url, forKey: Keys.folder)
         loadFolder(restoring: nil)
     }
@@ -117,7 +148,8 @@ final class LibraryModel {
         watchFolder()
         // The saved selection is a file name for folder lists, a full path for linked files.
         let restored = selectedName.map { $0.hasPrefix("/") ? URL(filePath: $0) : folderURL.appending(path: $0) }
-        selection = (lists + linkedFiles).first { $0 == restored } ?? lists.first
+        selection = (lists + templates + linkedFiles).first { $0 == restored } ?? lists.first
+        makeDueCopies()
     }
 
     /// Re-reads the folder and re-checks linked files, keeping the selection
@@ -125,6 +157,8 @@ final class LibraryModel {
     func refreshLists() {
         let current = (try? library.lists()) ?? []
         if current != lists { lists = current }
+        let currentTemplates = (try? templateLibrary.lists()) ?? []
+        if currentTemplates != templates { templates = currentTemplates }
         let missing = Set(linkedFiles.filter { !FileManager.default.fileExists(atPath: $0.path) })
         if missing != missingFiles { missingFiles = missing }
         refreshTitles()
@@ -134,7 +168,7 @@ final class LibraryModel {
             // Keep it selected so the detail pane can say what happened, but
             // don't save: that would recreate the file where it used to be.
             if document != nil { dropDocument(saving: false) }
-        } else if !current.contains(selection) && !linkedFiles.contains(selection) {
+        } else if !current.contains(selection) && !currentTemplates.contains(selection) && !linkedFiles.contains(selection) {
             dropDocument(saving: false)
             self.selection = nil
         } else if document == nil {
@@ -144,25 +178,27 @@ final class LibraryModel {
     }
 
     /// Refreshes the sidebar when files are added, removed or renamed in the
-    /// folder by anything, including Finder.
+    /// folder or its Templates subfolder by anything, including Finder.
     private func watchFolder() {
-        folderWatcher?.cancel()
-        let fd = open(folderURL.path, O_EVTONLY)
-        guard fd >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
-        source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.refreshLists() }
+        folderWatchers.forEach { $0.cancel() }
+        folderWatchers = [folderURL, templateLibrary.folderURL].compactMap { url in
+            let fd = open(url.path, O_EVTONLY)
+            guard fd >= 0 else { return nil }
+            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
+            source.setEventHandler { [weak self] in
+                MainActor.assumeIsolated { self?.refreshLists() }
+            }
+            source.setCancelHandler { close(fd) }
+            source.resume()
+            return source
         }
-        source.setCancelHandler { close(fd) }
-        source.resume()
-        folderWatcher = source
     }
 
     /// Re-reads each list's `#` title. Lists are small, but a read can stall
     /// for seconds while iCloud syncs the file, so it's done off the main
     /// thread; a newer refresh supersedes one still running.
     private func refreshTitles() {
-        let urls = (lists + linkedFiles).filter { !missingFiles.contains($0) }
+        let urls = (lists + templates + linkedFiles).filter { !missingFiles.contains($0) }
         titlesTask?.cancel()
         titlesTask = Task {
             let current = await Task.detached { Self.readTitles(of: urls) }.value
@@ -241,8 +277,8 @@ final class LibraryModel {
         for url in urls where url.isFileURL && !url.hasDirectoryPath {
             let url = url.standardizedFileURL
             guard Self.linkableExtensions.contains(url.pathExtension.lowercased()) else { continue }
-            if library.contains(url) {
-                toSelect = library.canonicalURL(for: url)
+            if let owner = [library, templateLibrary].first(where: { $0.contains(url) }) {
+                toSelect = owner.canonicalURL(for: url)
                 continue
             }
             if !added.contains(url) { added.append(url) }
@@ -310,7 +346,7 @@ final class LibraryModel {
             case .rename(let url):
                 let wasSelected = selection == url
                 if wasSelected { closeDocument() }
-                let renamed = try library.renameList(at: url, to: nameDraft)
+                let renamed = try owner(of: url).renameList(at: url, to: nameDraft)
                 retitle(renamed, to: nameDraft)
                 refreshLists()
                 if wasSelected {
@@ -350,7 +386,7 @@ final class LibraryModel {
         let neighbour = wasSelected ? neighbourInList(of: url) : nil
         if wasSelected { closeDocument() }
         do {
-            try library.trashList(at: url)
+            try owner(of: url).trashList(at: url)
         } catch {
             errorMessage = "Couldn't move \(url.lastPathComponent) to the Trash: \(error.localizedDescription)"
         }
@@ -359,8 +395,69 @@ final class LibraryModel {
     }
 
     private func neighbourInList(of url: URL) -> URL? {
-        guard let i = lists.firstIndex(of: url) else { return nil }
-        if i + 1 < lists.count { return lists[i + 1] }
-        return i > 0 ? lists[i - 1] : nil
+        let siblings = templates.contains(url) ? templates : lists
+        guard let i = siblings.firstIndex(of: url) else { return nil }
+        if i + 1 < siblings.count { return siblings[i + 1] }
+        return i > 0 ? siblings[i - 1] : nil
+    }
+
+    /// The folder a list belongs to: the lists folder or the templates one.
+    private func owner(of url: URL) -> TaskLibrary {
+        templates.contains(url) ? templateLibrary : library
+    }
+
+    // MARK: - Repeating checklists
+
+    func promptNewRepeating() {
+        nameDraft = templateLibrary.suggestedNewName(base: "Checklist")
+        scheduleDraft = RepeatSchedule()
+        isCreatingRepeating = true
+    }
+
+    /// Creates the template, titled with its name, and opens it to be filled
+    /// in. Its first copy is made once it has tasks and the user moves on.
+    func commitNewRepeating() {
+        isCreatingRepeating = false
+        do {
+            let name = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            try templateLibrary.ensureFolderExists()
+            let url = try templateLibrary.createList(named: name, contents: Outline(title: name, schedule: scheduleDraft))
+            watchFolder()
+            refreshLists()
+            selection = url
+            document?.focusFirstRow()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Makes any repeating checklist copies that are due, off the main
+    /// thread. If the open list was the previous copy, the new one is opened
+    /// in its place. Overlapping requests run once more afterwards.
+    func makeDueCopies() {
+        guard !isMakingCopies else {
+            needsCopiesAgain = true
+            return
+        }
+        isMakingCopies = true
+        // Save first, so tasks being carried over include the latest edits.
+        document?.saveNow()
+        let templates = templateLibrary, lists = library
+        Task {
+            let results = await Task.detached {
+                RepeatingChecklists.makeDueCopies(
+                    templates: templates, lists: lists, date: Date(), calendar: .current, locale: .current)
+            }.value
+            isMakingCopies = false
+            if !results.isEmpty { refreshLists() }
+            if let error = results.compactMap(\.error).first { errorMessage = error }
+            if let moved = results.first(where: { $0.copy != nil && $0.previous != nil && $0.previous == selection }) {
+                selection = moved.copy
+            }
+            if needsCopiesAgain {
+                needsCopiesAgain = false
+                makeDueCopies()
+            }
+        }
     }
 }

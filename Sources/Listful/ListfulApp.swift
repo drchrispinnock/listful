@@ -41,6 +41,8 @@ struct ListfulApp: App {
         CommandGroup(replacing: .newItem) {
             Button("New Task List…") { library.promptNewList() }
                 .keyboardShortcut("n")
+            Button("New Repeating Checklist…") { library.promptNewRepeating() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Add Existing File…") { library.addExistingFiles() }
                 .keyboardShortcut("o")
             Button("Reload from Disk") { library.document?.reload() }

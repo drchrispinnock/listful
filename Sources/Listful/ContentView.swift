@@ -34,6 +34,7 @@ struct ContentView: View {
                 }
             }
         }
+        .sheet(isPresented: $library.isCreatingRepeating) { NewRepeatingSheet(library: library) }
         .alert(
             "Task lists",
             isPresented: Binding(
@@ -60,6 +61,14 @@ struct SidebarView: View {
                         .tag(url)
                 }
             }
+            if !library.templates.isEmpty {
+                Section("Repeating") {
+                    ForEach(library.templates, id: \.self) { url in
+                        Label(library.displayName(of: url), systemImage: "repeat")
+                            .tag(url)
+                    }
+                }
+            }
             if !library.linkedFiles.isEmpty {
                 Section("Other Files") {
                     ForEach(library.linkedFiles, id: \.self) { url in
@@ -84,6 +93,7 @@ struct SidebarView: View {
                 }
             } else {
                 Button("New Task List…") { library.promptNewList() }
+                Button("New Repeating Checklist…") { library.promptNewRepeating() }
                 Button("Add Existing File…") { library.addExistingFiles() }
             }
         }
@@ -102,6 +112,7 @@ struct SidebarView: View {
             HStack {
                 Menu {
                     Button("New Task List…") { library.promptNewList() }
+                    Button("New Repeating Checklist…") { library.promptNewRepeating() }
                     Button("Add Existing File…") { library.addExistingFiles() }
                 } label: {
                     Label("Add", systemImage: "plus")
@@ -154,6 +165,7 @@ struct SidebarView: View {
 
     private var namePromptTitle: String {
         switch library.namePrompt {
+        case .rename(let url) where library.templates.contains(url): "Rename Repeating Checklist"
         case .rename: "Rename Task List"
         case .newList, nil: "New Task List"
         }

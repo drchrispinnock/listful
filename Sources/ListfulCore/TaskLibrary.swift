@@ -64,6 +64,12 @@ public struct TaskLibrary: Sendable {
         folderURL.appending(path: url.lastPathComponent)
     }
 
+    /// Where repeating checklists' templates are kept: a subfolder, so they
+    /// aren't listed among the lists themselves.
+    public var templatesFolderURL: URL {
+        folderURL.appending(path: "Templates")
+    }
+
     public func ensureFolderExists() throws {
         try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
     }
@@ -91,14 +97,14 @@ public struct TaskLibrary: Sendable {
     }
 
     @discardableResult
-    public func createList(named rawName: String) throws -> URL {
+    public func createList(named rawName: String, contents: Outline = Outline()) throws -> URL {
         let name = try Self.validatedName(rawName)
         let url = url(forName: name)
         guard !FileManager.default.fileExists(atPath: url.path) else {
             throw TaskLibraryError.alreadyExists(name)
         }
         try ensureFolderExists()
-        try MarkdownFileStore(fileURL: url).save(Outline())
+        try MarkdownFileStore(fileURL: url).save(contents)
         return url
     }
 

@@ -13,6 +13,10 @@ struct OutlineView: View {
             ScrollView {
                 // Not lazy: every row's text field must exist so focus can move to it.
                 VStack(alignment: .leading, spacing: 2) {
+                    if let schedule = document.outline.schedule {
+                        ScheduleBar(schedule: schedule) { document.editSchedule() }
+                            .padding(.bottom, 10)
+                    }
                     if document.showsListTitle {
                         ListTitleField(document: document)
                             .padding(.bottom, 10)
@@ -42,6 +46,7 @@ struct OutlineView: View {
         }
         .background(Color(nsColor: .textBackgroundColor))
         .navigationTitle(document.displayTitle)
+        .sheet(isPresented: $document.isEditingSchedule) { EditScheduleSheet(document: document) }
         .alert(
             "Task file error",
             isPresented: Binding(
