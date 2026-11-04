@@ -197,6 +197,25 @@ func shape(_ outline: Outline) -> [String] {
         #expect(o.items.map(\.state) == [.decrufted, .open, .decrufted])
     }
 
+    @Test func deleteDoneRemovesDoneAndDecruftedTasks() {
+        var o = outline(["a:0", "b:1", "c:0", "#H", "d:0", "e:0"])
+        o.toggleDone(at: 1)
+        o.toggleDone(at: 4)
+        o.decruftDone()
+        o.toggleDone(at: 2)
+        let r = o.deleteDone()
+        #expect(r == 3)
+        #expect(shape(o) == ["a:0", "#H", "e:0"])
+    }
+
+    @Test func deleteDoneKeepsOpenTasksUnderDeletedOnes() {
+        var o = outline(["a:0", "b:1", "c:2", "d:3", "e:2", "f:1", "g:0"])
+        o.toggleDone(at: 1)
+        o.toggleDone(at: 3)
+        o.deleteDone()
+        #expect(shape(o) == ["a:0", "c:1", "e:1", "f:1", "g:0"])
+    }
+
     @Test func visibilityHidesCollapsedChildren() {
         var o = outline(["a:0", "b:1", "c:2", "d:0"])
         o.setCollapsed(true, at: 0)

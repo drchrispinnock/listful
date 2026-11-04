@@ -4,7 +4,8 @@ public enum TaskState: String, Sendable, CaseIterable {
     case open
     /// Completed; shown struck through.
     case done
-    /// Completed and tidied away; hidden unless "show decrufted" is on. Never deleted.
+    /// Completed and tidied away; hidden unless "show decrufted" is on.
+    /// Kept in the file unless the Delete decrufted tasks setting is on.
     case decrufted
 }
 
@@ -438,6 +439,28 @@ public struct Outline: Equatable, Sendable {
             items[i].state = .decrufted
             count += 1
         }
+        return count
+    }
+
+    /// Deletes every done and decrufted task, for decrufting by deleting.
+    /// Open tasks under a deleted one are kept, moved up to its place.
+    /// Returns how many were deleted.
+    @discardableResult
+    public mutating func deleteDone() -> Int {
+        var kept: [TaskItem] = []
+        // Depths of the deleted tasks enclosing the current item.
+        var deleted: [Int] = []
+        for var item in items {
+            while let last = deleted.last, last >= item.depth { deleted.removeLast() }
+            if !item.isHeading && item.state != .open {
+                deleted.append(item.depth)
+                continue
+            }
+            item.depth -= deleted.count
+            kept.append(item)
+        }
+        let count = items.count - kept.count
+        items = kept
         return count
     }
 }

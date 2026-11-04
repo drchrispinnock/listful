@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// UserDefaults keys for display preferences, shared by `@AppStorage` users.
+/// UserDefaults keys for preferences, shared by `@AppStorage` users.
 enum DisplaySettings {
     static let showTick = "showCompletionTick"
     static let showStrikethrough = "showCompletionStrikethrough"
+    /// Decruft deletes done tasks instead of hiding them.
+    static let deleteDecrufted = "deleteDecruftedTasks"
 }
 
 struct SettingsView: View {
@@ -11,6 +13,7 @@ struct SettingsView: View {
     let updater: Updater
     @AppStorage(DisplaySettings.showTick) private var showTick = true
     @AppStorage(DisplaySettings.showStrikethrough) private var showStrikethrough = true
+    @AppStorage(DisplaySettings.deleteDecrufted) private var deleteDecrufted = false
 
     var body: some View {
         Form {
@@ -22,6 +25,15 @@ struct SettingsView: View {
                     .disabled(showStrikethrough && !showTick)
             } header: {
                 Text("Show completion")
+            }
+
+            Section {
+                Toggle(isOn: $deleteDecrufted) {
+                    Text("Delete decrufted tasks")
+                    Text("Decruft Done Tasks deletes done tasks from the list instead of hiding them. Open tasks nested under them are kept.")
+                }
+            } header: {
+                Text("Decruft")
             }
 
             Section {

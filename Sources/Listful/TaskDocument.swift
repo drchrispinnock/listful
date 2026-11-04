@@ -302,7 +302,14 @@ final class TaskDocument {
     }
 
     func decruft() {
-        mutate { $0.decruftDone() }
+        if UserDefaults.standard.bool(forKey: DisplaySettings.deleteDecrufted) {
+            mutate {
+                $0.deleteDone()
+                if $0.isEmpty { $0.appendItem() }
+            }
+        } else {
+            mutate { $0.decruftDone() }
+        }
         if let focusedID, !visibleItems.contains(where: { $0.id == focusedID }) {
             self.focusedID = nil
         }

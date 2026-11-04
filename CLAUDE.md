@@ -41,7 +41,7 @@ Two targets: `ListfulCore` (pure model + persistence, fully unit-tested, no AppK
 
 **Outline model (`Outline.swift`).** The tree is stored as a *flat pre-order array* of `TaskItem`s with a `depth`, not as nested nodes. Invariant (enforced in `init`): first item depth 0, each depth ≤ previous + 1. A subtree is the contiguous run of following items with greater depth (`subtreeEnd`). All structural edits (indent, outdent, insert, move up/down, remove) are slice operations on that array and must preserve the invariant. This shape maps 1:1 to both the Markdown file and the visible row list.
 
-Task states: `open`, `done` (struck through), `decrufted` (done + hidden, never deleted).
+Task states: `open`, `done` (struck through), `decrufted` (done + hidden). With the `deleteDecruftedTasks` setting on, Decruft calls `Outline.deleteDone` instead, deleting done and decrufted tasks but lifting any open descendants into their place.
 
 Headings (`headingLevel` 1–3) are items too, but not tasks: always depth 0, never done, never parents — the item after a heading is forced to depth 0, so tasks under a heading are top-level, matching Markdown. A heading instead owns a *section* (up to the next heading of same-or-higher level; `sectionEnd`), and collapsing it hides the section. `canCollapse` covers both kinds. Tasks can be moved across headings (changing section); headings can't be indented or moved by Move Up/Down. Edits that put an item inside a collapsed section expand it (`reveal`). Typing `# `/`## `/`### ` at the start of a task converts it (`TaskDocument.setTitle`); backspace in an empty heading turns it back into a task.
 
