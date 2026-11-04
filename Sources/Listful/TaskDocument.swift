@@ -176,19 +176,36 @@ final class TaskDocument {
         var depth: Int
         /// The top of the gap it would drop into, in the outline's coordinates.
         var gapY: CGFloat
+        /// Another list in the sidebar it would move to, if it's over one.
+        var targetList: URL?
     }
 
     private(set) var drag: RowDrag?
     /// Each visible row's frame in the outline's coordinates, reported by the
     /// rows. Not observed: it changes on every layout and only drags read it.
     @ObservationIgnored var rowFrames: [UUID: CGRect] = [:]
+    /// Where the outline's coordinate space is, in window coordinates.
+    @ObservationIgnored var outlineOrigin: CGPoint = .zero
+    /// The sidebar's lists and their frames in window coordinates, which a
+    /// row can be dragged onto to move it there.
+    @ObservationIgnored var sidebarTargets: () -> [URL: CGRect] = { [:] }
 
-    /// Follows a drag of `id`'s bullet: the gap is the one nearest the
-    /// pointer, among the rows outside the dragged subtree, and dragging
-    /// sideways by an indent changes the depth by one.
-    func updateDrag(_ id: UUID, location: CGPoint, translation: CGSize, indentWidth: CGFloat) {
+    /// Follows a drag of `id`'s bullet (`location` in window coordinates).
+    /// Over another list in the sidebar, the row would move there. Otherwise
+    /// the gap is the one nearest the pointer, among the rows outside the
+    /// dragged subtree, and dragging sideways by an indent changes the depth by one.
+    func updateDrag(_ id: UUID, location windowLocation: CGPoint, translation: CGSize, indentWidth: CGFloat) {
         guard let index = outline.index(of: id) else { return }
         let end = outline.subtreeEnd(index)
+        let movingIDs = drag?.id == id ? drag!.movingIDs : Set(outline.items[index..<end].map(\.id))
+
+        if let target = sidebarTargets().first(where: { $0.key != fileURL && $0.value.contains(windowLocation) })?.key {
+            let newDrag = RowDrag(id: id, movingIDs: movingIDs, destination: index, depth: 0, gapY: 0, targetList: target)
+            if newDrag != drag { drag = newDrag }
+            return
+        }
+
+        let location = CGPoint(x: windowLocation.x - outlineOrigin.x, y: windowLocation.y - outlineOrigin.y)
         let rows = outline.visibleIndices(showDecrufted: options.showDecrufted)
             .filter { $0 < index || $0 >= end }
         func frame(_ i: Int) -> CGRect? { rowFrames[outline.items[i].id] }
@@ -197,12 +214,15 @@ final class TaskDocument {
         let next = nextPosition.map { rows[$0] }
         let previous = (nextPosition ?? rows.count) > 0 ? rows[(nextPosition ?? rows.count) - 1] : nil
         guard let target = outline.dropTarget(moving: index, afterVisible: previous, beforeVisible: next)
-        else { return }
+        else {
+            // Back from the sidebar to a spot it can't drop on: no target.
+            if drag?.targetList != nil { drag = nil }
+            return
+        }
 
         let wanted = outline.items[index].depth + Int((translation.width / indentWidth).rounded())
         let depth = min(max(wanted, target.depths.lowerBound), target.depths.upperBound)
         let gapY = next.flatMap(frame)?.minY ?? previous.flatMap(frame)?.maxY ?? 0
-        let movingIDs = drag?.id == id ? drag!.movingIDs : Set(outline.items[index..<end].map(\.id))
         let newDrag = RowDrag(id: id, movingIDs: movingIDs, destination: target.destination, depth: depth, gapY: gapY)
         if newDrag != drag { drag = newDrag }
     }
@@ -211,8 +231,46 @@ final class TaskDocument {
     func endDrag() {
         guard let drag else { return }
         self.drag = nil
+        if let target = drag.targetList {
+            moveToList(drag.id, target)
+            return
+        }
         guard let i = outline.index(of: drag.id) else { return }
         mutate { $0.move(at: i, to: drag.destination, depth: drag.depth) }
+    }
+
+    /// Moves a task and its subtasks to the end of another list. The other
+    /// list is written first, off the main thread (iCloud can stall a write),
+    /// and the task is only removed here once that has worked.
+    func moveToList(_ id: UUID, _ target: URL) {
+        guard let index = outline.index(of: id), !outline.items[index].isHeading else { return }
+        let subtree = outline.subtreeItems(at: index)
+        Task {
+            let error = await Task.detached { () -> String? in
+                let store = MarkdownFileStore(fileURL: target)
+                do {
+                    var other = try store.load()
+                    other.appendSubtree(subtree)
+                    try store.save(other)
+                    return nil
+                } catch {
+                    return error.localizedDescription
+                }
+            }.value
+            if let error {
+                errorMessage = "Couldn't move the task to \(target.lastPathComponent): \(error)"
+                return
+            }
+            guard let i = outline.index(of: id) else { return }
+            let nextFocus = neighbour(of: id, offset: -1) ?? neighbour(of: id, offset: 1)
+            mutate {
+                $0.removeSubtree(at: i)
+                if $0.isEmpty { $0.appendItem() }
+            }
+            if focusedID == id { focusedID = nil }
+            // The row below may have been one of its subtasks, now gone.
+            if let nextFocus, outline.index(of: nextFocus) != nil { requestFocus(nextFocus) }
+        }
     }
 
     func setCollapsed(_ collapsed: Bool, for id: UUID) {

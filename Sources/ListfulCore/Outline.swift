@@ -377,6 +377,31 @@ public struct Outline: Equatable, Sendable {
         items.removeSubrange(index..<subtreeEnd(index))
     }
 
+    /// The item at `index` with its subtree, moved up to the top level.
+    public func subtreeItems(at index: Int) -> [TaskItem] {
+        let base = items[index].depth
+        return items[index..<subtreeEnd(index)].map { item in
+            var item = item
+            item.depth -= base
+            return item
+        }
+    }
+
+    /// Adds a top-level item and its subtree (as from `subtreeItems`) at the
+    /// end. A blank last task, the row left for typing into, stays last.
+    public mutating func appendSubtree(_ subtree: [TaskItem]) {
+        guard let base = subtree.first?.depth else { return }
+        let added = subtree.map { item in
+            var item = item
+            item.id = UUID()
+            item.depth -= base
+            return item
+        }
+        var end = items.count
+        if let last = items.last, !last.isHeading, last.depth == 0, last.title.isEmpty { end -= 1 }
+        items.insert(contentsOf: added, at: end)
+    }
+
     /// Open becomes done; done or decrufted becomes open.
     public mutating func toggleDone(at index: Int) {
         guard !items[index].isHeading else { return }

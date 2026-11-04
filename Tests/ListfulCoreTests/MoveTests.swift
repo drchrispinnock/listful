@@ -3,6 +3,21 @@ import Testing
 
 /// Drag-and-drop moves: `moveDepths`, `dropTarget` and `move(at:to:depth:)`.
 @Suite struct MoveTests {
+    @Test func subtreeMovesToAnotherListAtTopLevel() {
+        let source = outline(["a:0", "b:1", "c:2", "d:1", "e:0"])
+        let subtree = source.subtreeItems(at: 1)
+        #expect(subtree.map(\.title) == ["b", "c"])
+        var target = outline(["x:0", "y:1"])
+        target.appendSubtree(subtree)
+        #expect(shape(target) == ["x:0", "y:1", "b:0", "c:1"])
+    }
+
+    @Test func subtreeGoesBeforeATrailingBlankRow() {
+        var target = outline(["x:0", ":0"])
+        target.appendSubtree(outline(["b:0"]).subtreeItems(at: 0))
+        #expect(shape(target) == ["x:0", "b:0", ":0"])
+    }
+
     @Test func moveDownCarriesSubtree() {
         var o = outline(["a:0", "b:1", "c:0", "d:0"])
         let index = o.move(at: 0, to: 3, depth: 0)

@@ -43,6 +43,9 @@ final class LibraryModel {
     /// away, and templates whose finished earlier copies are shown.
     var collapsedTemplates: Set<URL> = []
     var expandedEarlier: Set<URL> = []
+    /// Each visible sidebar row's frame in window coordinates, so a task
+    /// can be dragged onto it. Not observed: it changes on every layout.
+    @ObservationIgnored var sidebarFrames: [URL: CGRect] = [:]
     private(set) var document: TaskDocument?
     var selection: URL? {
         didSet {
@@ -277,6 +280,10 @@ final class LibraryModel {
             return
         }
         document = TaskDocument(fileURL: selection, options: options)
+        document?.sidebarTargets = { [weak self] in
+            guard let self else { return [:] }
+            return sidebarFrames.filter { !missingFiles.contains($0.key) }
+        }
         let isLinked = linkedFiles.contains(selection)
         UserDefaults.standard.set(isLinked ? selection.path : selection.lastPathComponent, forKey: Keys.selectedList)
     }

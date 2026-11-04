@@ -4,6 +4,14 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
+## Unreleased
+
+- **Drag tasks into other lists.** Drag a task's dot onto a list in the
+  sidebar to move it there, along with any tasks nested under it. The list
+  is outlined while you're over it. The task goes at the end of that list,
+  at the top level, and leaves this one. This works for repeating
+  checklists, their copies and files from elsewhere too.
+
 ## 0.3 — 2026-11-04
 
 - **Repeating checklists.** File ▸ New Repeating Checklist… (Cmd-Shift-N)

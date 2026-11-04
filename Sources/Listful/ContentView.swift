@@ -58,6 +58,7 @@ struct SidebarView: View {
             Section(library.folderURL.lastPathComponent) {
                 ForEach(library.ungroupedLists, id: \.self) { url in
                     Label(library.displayName(of: url), systemImage: "checklist")
+                        .sidebarDropTarget(url, library: library)
                         .tag(url)
                 }
             }
@@ -72,6 +73,7 @@ struct SidebarView: View {
                 Section("Other Files") {
                     ForEach(library.linkedFiles, id: \.self) { url in
                         LinkedFileRow(url: url, name: library.displayName(of: url), isMissing: library.missingFiles.contains(url))
+                            .sidebarDropTarget(url, library: library)
                             .tag(url)
                     }
                 }
@@ -171,6 +173,26 @@ struct SidebarView: View {
     }
 }
 
+extension View {
+    /// Makes a sidebar row somewhere a task can be dragged to: reports its
+    /// frame, and is highlighted while a task is over it.
+    func sidebarDropTarget(_ url: URL, library: LibraryModel) -> some View {
+        frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                library.sidebarFrames[url] = $0
+            }
+            .onDisappear { library.sidebarFrames[url] = nil }
+            .overlay {
+                if library.document?.drag?.targetList == url {
+                    RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .padding(-3)
+                }
+            }
+    }
+}
+
 /// A template in the sidebar with its copies beneath it: the newest, earlier
 /// ones with tasks left, and the finished ones folded into "Earlier".
 struct RepeatingGroup: View {
@@ -182,6 +204,7 @@ struct RepeatingGroup: View {
         DisclosureGroup(isExpanded: expansion(of: $library.collapsedTemplates, inverted: true)) {
             ForEach(groups.shown, id: \.self) { copy in
                 Label(library.copyLabel(of: copy, template: template), systemImage: "checklist")
+                    .sidebarDropTarget(copy, library: library)
                     .tag(copy)
             }
             if !groups.earlier.isEmpty {
@@ -189,6 +212,7 @@ struct RepeatingGroup: View {
                     ForEach(groups.earlier, id: \.self) { copy in
                         Label(library.copyLabel(of: copy, template: template), systemImage: "checkmark.circle")
                             .foregroundStyle(.secondary)
+                            .sidebarDropTarget(copy, library: library)
                             .tag(copy)
                     }
                 } label: {
@@ -198,6 +222,7 @@ struct RepeatingGroup: View {
             }
         } label: {
             Label(library.displayName(of: template), systemImage: "repeat")
+                .sidebarDropTarget(template, library: library)
                 .tag(template)
                 .help("Template: edit it to change future copies")
         }

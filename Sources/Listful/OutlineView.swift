@@ -30,6 +30,10 @@ struct OutlineView: View {
                     }
                 }
                 .coordinateSpace(.named(Self.space))
+                // Drags are tracked in window coordinates, so they can reach the sidebar.
+                .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: {
+                    document.outlineOrigin = $0
+                }
                 .overlay(alignment: .topLeading) { dropIndicator }
                 .onPreferenceChange(RowFramesKey.self) { frames in
                     MainActor.assumeIsolated { document.rowFrames = frames }
@@ -71,7 +75,7 @@ struct OutlineView: View {
     /// Where a dragged row would land: a line at the gap, indented to the
     /// depth it would take, starting where that depth's bullet would be.
     @ViewBuilder private var dropIndicator: some View {
-        if let drag = document.drag {
+        if let drag = document.drag, drag.targetList == nil {
             HStack(spacing: 0) {
                 Circle()
                     .strokeBorder(Color.accentColor, lineWidth: 2)
@@ -190,7 +194,7 @@ struct TaskRow: View {
             .frame(width: 16, height: 16)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .named(OutlineView.space))
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { value in
                         // A small wobble is still a click.
                         let moved = abs(value.translation.width) > 3 || abs(value.translation.height) > 3
