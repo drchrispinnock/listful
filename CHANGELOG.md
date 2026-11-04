@@ -4,7 +4,7 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
-## Unreleased
+## 0.3 — 2026-11-04
 
 - **Repeating checklists.** File ▸ New Repeating Checklist… (Cmd-Shift-N)
   makes a template: name it, choose how often it repeats, then fill in its
