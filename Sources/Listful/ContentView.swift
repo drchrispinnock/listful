@@ -56,16 +56,15 @@ struct SidebarView: View {
     var body: some View {
         List(selection: $library.selection) {
             Section(library.folderURL.lastPathComponent) {
-                ForEach(library.lists, id: \.self) { url in
+                ForEach(library.ungroupedLists, id: \.self) { url in
                     Label(library.displayName(of: url), systemImage: "checklist")
                         .tag(url)
                 }
             }
             if !library.templates.isEmpty {
                 Section("Repeating") {
-                    ForEach(library.templates, id: \.self) { url in
-                        Label(library.displayName(of: url), systemImage: "repeat")
-                            .tag(url)
+                    ForEach(library.templates, id: \.self) { template in
+                        RepeatingGroup(library: library, template: template)
                     }
                 }
             }
@@ -169,6 +168,49 @@ struct SidebarView: View {
         case .rename: "Rename Task List"
         case .newList, nil: "New Task List"
         }
+    }
+}
+
+/// A template in the sidebar with its copies beneath it: the newest, earlier
+/// ones with tasks left, and the finished ones folded into "Earlier".
+struct RepeatingGroup: View {
+    @Bindable var library: LibraryModel
+    let template: URL
+
+    var body: some View {
+        let groups = library.copyGroups(of: template)
+        DisclosureGroup(isExpanded: expansion(of: $library.collapsedTemplates, inverted: true)) {
+            ForEach(groups.shown, id: \.self) { copy in
+                Label(library.copyLabel(of: copy, template: template), systemImage: "checklist")
+                    .tag(copy)
+            }
+            if !groups.earlier.isEmpty {
+                DisclosureGroup(isExpanded: expansion(of: $library.expandedEarlier, inverted: false)) {
+                    ForEach(groups.earlier, id: \.self) { copy in
+                        Label(library.copyLabel(of: copy, template: template), systemImage: "checkmark.circle")
+                            .foregroundStyle(.secondary)
+                            .tag(copy)
+                    }
+                } label: {
+                    Text("Earlier (\(groups.earlier.count))")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } label: {
+            Label(library.displayName(of: template), systemImage: "repeat")
+                .tag(template)
+                .help("Template: edit it to change future copies")
+        }
+    }
+
+    /// Whether this template is in `set`, as a disclosure binding; inverted
+    /// for a set of the collapsed ones, so groups start out open.
+    private func expansion(of set: Binding<Set<URL>>, inverted: Bool) -> Binding<Bool> {
+        Binding(
+            get: { set.wrappedValue.contains(template) != inverted },
+            set: { isExpanded in
+                if isExpanded != inverted { set.wrappedValue.insert(template) } else { set.wrappedValue.remove(template) }
+            })
     }
 }
 

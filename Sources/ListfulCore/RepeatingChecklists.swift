@@ -11,6 +11,30 @@ public enum RepeatingChecklists {
         "\(template) \(key)"
     }
 
+    /// The lists among `lists` that are copies of the template called
+    /// `template`, newest first. A copy is "<template> <key>" for a period key
+    /// of any frequency, so copies made before a schedule change still count.
+    public static func copies(ofTemplateNamed template: String, in lists: [URL]) -> [URL] {
+        let prefix = template + " "
+        return lists
+            .compactMap { url -> (key: String, url: URL)? in
+                let name = TaskLibrary.displayName(of: url)
+                guard name.hasPrefix(prefix) else { return nil }
+                let key = String(name.dropFirst(prefix.count))
+                let isKey = RepeatSchedule.Frequency.allCases.contains { RepeatSchedule(frequency: $0).isPeriodKey(key) }
+                return isKey ? (key, url) : nil
+            }
+            .sorted { $0.key > $1.key }
+            .map(\.url)
+    }
+
+    /// Whether a list has any task left to do (a blank row doesn't count).
+    public static func hasOpenTasks(_ outline: Outline) -> Bool {
+        outline.items.contains { item in
+            !item.isHeading && item.state == .open && !item.title.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+    }
+
     /// A fresh copy of `template`: every task open again, titled "<title> — <label>",
     /// without the schedule. If `previous` (the template's last copy) is
     /// given, its unfinished tasks are moved to the top of the copy, and the

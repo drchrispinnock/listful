@@ -26,6 +26,11 @@ version that has no section here.
   has isn't added twice, and tasks under a heading stay under that heading.
   If you were looking at the previous copy, Listful switches to the new
   one.
+- **Copies grouped under their template.** In the sidebar, each repeating
+  checklist's copies are listed beneath it by date. The newest is always
+  shown, and so is any older copy that still has tasks left. Older copies
+  with everything ticked are folded into "Earlier". Copies no longer appear
+  among your other lists.
 - Templates are ordinary Markdown files in a Templates folder inside your
   task-list folder, so they sync with iCloud like your lists. The schedule
   is a hidden comment under the title.

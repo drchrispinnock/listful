@@ -257,6 +257,18 @@ private func key(_ schedule: RepeatSchedule, on text: String) -> String {
         #expect(try read("Routine 2026-11-03") == nil)
     }
 
+    @Test func copiesAreFoundNewestFirst() {
+        let urls = ["Routine 2026-11-02", "Routine 2026-11-03", "Routine notes", "Routines 2026-11-04", "Routine 2026-Q4", "Other 2026-11-03"]
+            .map(lists.url(forName:))
+        let names = RepeatingChecklists.copies(ofTemplateNamed: "Routine", in: urls).map(TaskLibrary.displayName(of:))
+        #expect(names == ["Routine 2026-Q4", "Routine 2026-11-03", "Routine 2026-11-02"])
+    }
+
+    @Test func blankRowsDontCountAsOpen() {
+        #expect(!RepeatingChecklists.hasOpenTasks(MarkdownCodec.decode("## Done\n\n- [x] Stretch\n- [ ] \n")))
+        #expect(RepeatingChecklists.hasOpenTasks(MarkdownCodec.decode("- [x] Stretch\n  - [ ] Hamstrings\n")))
+    }
+
     @Test func emptyTemplatesAreSkipped() throws {
         defer { cleanUp() }
         try FileManager.default.createDirectory(at: templates.folderURL, withIntermediateDirectories: true)

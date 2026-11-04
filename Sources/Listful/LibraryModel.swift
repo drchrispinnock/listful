@@ -36,6 +36,13 @@ final class LibraryModel {
     private(set) var missingFiles: Set<URL> = []
     /// `#` titles read from list files that have one.
     private(set) var titles: [URL: String] = [:]
+    /// Lists with nothing left to do; earlier repeating copies like these
+    /// are tucked away in the sidebar.
+    private(set) var finishedLists: Set<URL> = []
+    /// Sidebar disclosure state for repeating checklists: templates folded
+    /// away, and templates whose finished earlier copies are shown.
+    var collapsedTemplates: Set<URL> = []
+    var expandedEarlier: Set<URL> = []
     private(set) var document: TaskDocument?
     var selection: URL? {
         didSet {
@@ -194,29 +201,64 @@ final class LibraryModel {
         }
     }
 
-    /// Re-reads each list's `#` title. Lists are small, but a read can stall
-    /// for seconds while iCloud syncs the file, so it's done off the main
-    /// thread; a newer refresh supersedes one still running.
+    /// Re-reads each list's `#` title, and which lists are finished. Lists
+    /// are small, but a read can stall for seconds while iCloud syncs the
+    /// file, so it's done off the main thread; a newer refresh supersedes
+    /// one still running.
     private func refreshTitles() {
         let urls = (lists + templates + linkedFiles).filter { !missingFiles.contains($0) }
         titlesTask?.cancel()
         titlesTask = Task {
-            let current = await Task.detached { Self.readTitles(of: urls) }.value
+            let (current, finished) = await Task.detached { Self.readTitles(of: urls) }.value
             guard !Task.isCancelled else { return }
             if current != titles { titles = current }
+            if finished != finishedLists { finishedLists = finished }
         }
     }
 
-    nonisolated private static func readTitles(of urls: [URL]) -> [URL: String] {
+    nonisolated private static func readTitles(of urls: [URL]) -> ([URL: String], Set<URL>) {
         var titles: [URL: String] = [:]
+        var finished: Set<URL> = []
         for url in urls {
-            guard let text = try? String(contentsOf: url, encoding: .utf8),
-                  let title = MarkdownCodec.title(in: text)?.trimmingCharacters(in: .whitespaces),
-                  !title.isEmpty
-            else { continue }
-            titles[url] = title
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let outline = MarkdownCodec.decode(text)
+            if !RepeatingChecklists.hasOpenTasks(outline) { finished.insert(url) }
+            if let title = outline.title?.trimmingCharacters(in: .whitespaces), !title.isEmpty {
+                titles[url] = title
+            }
         }
-        return titles
+        return (titles, finished)
+    }
+
+    // MARK: - Sidebar groups
+
+    /// The folder's lists that aren't copies of a repeating checklist.
+    var ungroupedLists: [URL] {
+        let grouped = Set(templates.flatMap(copies(of:)))
+        return lists.filter { !grouped.contains($0) }
+    }
+
+    /// A template's copies, newest first.
+    func copies(of template: URL) -> [URL] {
+        RepeatingChecklists.copies(ofTemplateNamed: TaskLibrary.displayName(of: template), in: lists)
+    }
+
+    /// A template's copies split for the sidebar: the newest, earlier ones
+    /// with tasks left, and earlier finished ones. The open list always
+    /// counts as shown, so it doesn't vanish when its last task is ticked.
+    func copyGroups(of template: URL) -> (shown: [URL], earlier: [URL]) {
+        let all = copies(of: template)
+        guard let newest = all.first else { return ([], []) }
+        let older = all.dropFirst()
+        let isTucked = { (url: URL) in self.finishedLists.contains(url) && url != self.selection }
+        return ([newest] + older.filter { !isTucked($0) }, older.filter(isTucked))
+    }
+
+    /// A copy's sidebar name without its template's name, e.g. "Tue 3 Nov".
+    func copyLabel(of url: URL, template: URL) -> String {
+        let name = displayName(of: url)
+        let prefix = displayName(of: template) + " — "
+        return name.hasPrefix(prefix) ? String(name.dropFirst(prefix.count)) : name
     }
 
     /// The sidebar name for a list: its `#` title (live, for the open list)
@@ -452,6 +494,7 @@ final class LibraryModel {
             if !results.isEmpty { refreshLists() }
             if let error = results.compactMap(\.error).first { errorMessage = error }
             if let moved = results.first(where: { $0.copy != nil && $0.previous != nil && $0.previous == selection }) {
+                collapsedTemplates.remove(moved.template)
                 selection = moved.copy
             }
             if needsCopiesAgain {
