@@ -236,7 +236,7 @@ struct TaskRow: View {
         case .outdent: document.outdent(item.id)
         case .focusPrevious: document.focusPrevious(from: item.id)
         case .focusNext: document.focusNext(from: item.id)
-        case .deleteEmpty: document.deleteIfEmpty(item.id)
+        case .deleteAtStart: document.deleteAtStart(item.id)
         }
     }
 }

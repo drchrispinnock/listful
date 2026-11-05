@@ -4,6 +4,14 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
+## Unreleased
+
+- **Delete at the start of a task joins it to the one above.** The task's
+  text is added to the end of the task above, with the cursor where they
+  meet, and its subtasks come along as that task's last subtasks. Before,
+  Delete only removed a task once it was empty. Delete at the start of a
+  heading turns it back into a task, as it already did for an empty one.
+
 ## 0.3.2 — 2026-11-04
 
 - **Delete decrufted tasks.** A new setting, Settings ▸ Decruft ▸ Delete

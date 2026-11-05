@@ -197,6 +197,39 @@ func shape(_ outline: Outline) -> [String] {
         #expect(o.items.map(\.state) == [.decrufted, .open, .decrufted])
     }
 
+    @Test func joinAppendsTitleToPreviousRow() {
+        var o = outline(["ab:0", "cd:0", "e:0"])
+        let caret = o.join(1, into: 0)
+        #expect(caret == 2)
+        #expect(shape(o) == ["abcd:0", "e:0"])
+    }
+
+    @Test func joinMovesSubtasksToTheEndOfThePreviousRowsSubtasks() {
+        var o = outline(["a:0", "b:1", "c:0", "d:1", "e:2", "f:0"])
+        o.join(2, into: 1)
+        #expect(shape(o) == ["a:0", "bc:1", "d:2", "e:3", "f:0"])
+    }
+
+    @Test func joinIntoParentKeepsSubtasksInPlace() {
+        var o = outline(["a:0", "b:1", "c:2", "d:1"])
+        o.join(1, into: 0)
+        #expect(shape(o) == ["ab:0", "c:1", "d:1"])
+    }
+
+    @Test func joinIntoCollapsedRowAddsSubtasksAfterItsOwnAndExpandsIt() {
+        var o = outline(["a:0", "x:1", "b:0", "c:1"])
+        o.setCollapsed(true, at: 0)
+        o.join(2, into: 0)
+        #expect(shape(o) == ["ab:0", "x:1", "c:1"])
+        #expect(!o.items[0].isCollapsed)
+    }
+
+    @Test func joinIntoHeadingKeepsSubtasksTopLevel() {
+        var o = outline(["#H", "b:0", "c:1", "d:2"])
+        o.join(1, into: 0)
+        #expect(shape(o) == ["#Hb", "c:0", "d:1"])
+    }
+
     @Test func deleteDoneRemovesDoneAndDecruftedTasks() {
         var o = outline(["a:0", "b:1", "c:0", "#H", "d:0", "e:0"])
         o.toggleDone(at: 1)

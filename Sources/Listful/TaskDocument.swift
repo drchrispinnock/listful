@@ -283,22 +283,28 @@ final class TaskDocument {
         setCollapsed(!outline.items[i].isCollapsed, for: id)
     }
 
-    /// Backspace in an empty row: an empty heading becomes a task again;
-    /// an empty task is removed and the row above is focused. Rows with
-    /// children, and the last remaining row, are kept.
-    func deleteIfEmpty(_ id: UUID) {
-        if let i = outline.index(of: id), outline.items[i].isHeading {
+    /// Delete at the start of a row. A heading becomes a task again. A
+    /// task joins the row above: its text is appended there, with the caret
+    /// where they meet, and its subtasks go with it. On the first row, an
+    /// empty task is removed if there are others.
+    func deleteAtStart(_ id: UUID) {
+        guard let i = outline.index(of: id) else { return }
+        if outline.items[i].isHeading {
             makeTask(id)
             return
         }
-        guard let i = outline.index(of: id),
-              outline.items[i].title.isEmpty,
-              !outline.hasChildren(i),
-              outline.items.count > 1
-        else { return }
-        let target = neighbour(of: id, offset: -1) ?? neighbour(of: id, offset: 1)
-        mutate { $0.removeSubtree(at: i) }
-        if let target { requestFocus(target) }
+        guard let previousID = neighbour(of: id, offset: -1),
+              let previous = outline.index(of: previousID)
+        else {
+            guard outline.items[i].title.isEmpty, !outline.hasChildren(i), outline.items.count > 1 else { return }
+            let next = neighbour(of: id, offset: 1)
+            mutate { $0.removeSubtree(at: i) }
+            if let next { requestFocus(next) }
+            return
+        }
+        var caret = 0
+        mutate { caret = $0.join(i, into: previous) }
+        requestFocus(previousID, caret: caret)
     }
 
     func decruft() {

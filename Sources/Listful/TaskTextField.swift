@@ -5,7 +5,9 @@ import SwiftUI
 enum TaskFieldCommand {
     /// Return, with the selection (UTF-16 offsets) to split the task at.
     case newTask(selection: Range<Int>)
-    case indent, outdent, focusPrevious, focusNext, deleteEmpty
+    /// Delete with the caret at the very start.
+    case deleteAtStart
+    case indent, outdent, focusPrevious, focusNext
 }
 
 /// A borderless NSTextField that wraps long titles onto further lines. SwiftUI's TextField can't intercept
@@ -134,7 +136,8 @@ struct TaskTextField: NSViewRepresentable {
             case #selector(NSResponder.insertBacktab(_:)): command = .outdent
             case #selector(NSResponder.moveUp(_:)): command = .focusPrevious
             case #selector(NSResponder.moveDown(_:)): command = .focusNext
-            case #selector(NSResponder.deleteBackward(_:)) where textView.string.isEmpty: command = .deleteEmpty
+            case #selector(NSResponder.deleteBackward(_:)) where textView.selectedRange() == NSRange(location: 0, length: 0):
+                command = .deleteAtStart
             default: return false
             }
             parent.onCommand(command)

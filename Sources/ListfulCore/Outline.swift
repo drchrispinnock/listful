@@ -378,6 +378,31 @@ public struct Outline: Equatable, Sendable {
         items.removeSubrange(index..<subtreeEnd(index))
     }
 
+    /// Delete at the start of a task: appends its title to `previous` (the
+    /// row shown above it) and removes it. Its subtasks become the last
+    /// subtasks of `previous`, or stay where they were if they're already
+    /// inside it; under a heading they're top-level. Returns the offset
+    /// (UTF-16) where the two titles meet, for the caret.
+    @discardableResult
+    public mutating func join(_ index: Int, into previous: Int) -> Int {
+        precondition(previous < index && !items[index].isHeading)
+        let item = items[index]
+        let caret = items[previous].title.utf16.count
+        let end = subtreeEnd(index)
+        var children = Array(items[(index + 1)..<end])
+        let isInside = items[previous].isHeading || index < subtreeEnd(previous)
+        items.removeSubrange(index..<end)
+        items[previous].title += item.title
+        guard !children.isEmpty else { return caret }
+
+        let base = items[previous].isHeading ? 0 : items[previous].depth + 1
+        for k in children.indices { children[k].depth += base - (item.depth + 1) }
+        let at = isInside ? index : subtreeEnd(previous)
+        items.insert(contentsOf: children, at: at)
+        if !items[previous].isHeading { items[previous].isCollapsed = false }
+        return caret
+    }
+
     /// The item at `index` with its subtree, moved up to the top level.
     public func subtreeItems(at index: Int) -> [TaskItem] {
         let base = items[index].depth
