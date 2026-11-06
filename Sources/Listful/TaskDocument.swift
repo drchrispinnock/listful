@@ -321,9 +321,208 @@ final class TaskDocument {
         }
     }
 
+    // MARK: - Selecting rows
+
+    /// A run of selected rows, from where selecting started (`selectionAnchor`)
+    /// to the end that moves (`selectionHead`). Both nil while editing text.
+    private(set) var selectionAnchor: UUID?
+    private(set) var selectionHead: UUID?
+    /// A one-shot request for the outline's key handler to take keyboard
+    /// focus, so keys act on the selected rows rather than one row's text.
+    var selectionFocusRequested = false
+
+    var hasSelection: Bool { selectionAnchor != nil }
+
+    /// The selected rows, top to bottom.
+    var selectedIDs: [UUID] {
+        guard let selectionAnchor, let selectionHead else { return [] }
+        let rows = visibleItems
+        guard let a = rows.firstIndex(where: { $0.id == selectionAnchor }),
+              let b = rows.firstIndex(where: { $0.id == selectionHead })
+        else { return [] }
+        return rows[min(a, b)...max(a, b)].map(\.id)
+    }
+
+    /// Everything the selection covers, including what's hidden under the
+    /// selected rows.
+    private var selectedRange: Range<Int>? {
+        let ids = selectedIDs
+        guard let first = ids.first.flatMap(outline.index(of:)),
+              let last = ids.last.flatMap(outline.index(of:))
+        else { return nil }
+        return outline.blockRange(from: first, to: last)
+    }
+
+    /// Selects one row, ending any text editing.
+    func select(_ id: UUID) {
+        selectionAnchor = id
+        selectionHead = id
+        focusedID = id
+        focusRequestID = nil
+        selectionFocusRequested = true
+    }
+
+    /// Extends the selection to `id`, starting it from the row being edited.
+    func extendSelection(to id: UUID) {
+        if selectionAnchor == nil { selectionAnchor = focusedID ?? id }
+        selectionHead = id
+        focusedID = id
+        focusRequestID = nil
+        selectionFocusRequested = true
+    }
+
+    /// Shift-Up/Down: grows or shrinks the selection a row at a time.
+    func extendSelection(by offset: Int) {
+        guard let from = selectionHead ?? focusedID else { return }
+        if let target = neighbour(of: from, offset: offset) {
+            extendSelection(to: target)
+        } else if !hasSelection {
+            select(from)
+        }
+    }
+
+    /// Up/Down with rows selected: selects the single row above or below.
+    func moveSelection(by offset: Int) {
+        let ids = selectedIDs
+        guard let edge = offset < 0 ? ids.first : ids.last else { return }
+        select(neighbour(of: edge, offset: offset) ?? edge)
+    }
+
+    func selectAll() {
+        let rows = visibleItems
+        guard let first = rows.first, let last = rows.last else { return }
+        select(first.id)
+        extendSelection(to: last.id)
+    }
+
+    func clearSelection() {
+        selectionAnchor = nil
+        selectionHead = nil
+    }
+
+    /// Return or Escape with rows selected: goes back to editing text, in
+    /// the row the selection ended on.
+    func editSelection() {
+        guard let id = selectionHead else { return }
+        requestFocus(id)
+    }
+
+    func copySelection() {
+        guard let range = selectedRange else { return }
+        let block = outline.blockItems(range)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(TaskClipboard.plainText(block), forType: .string)
+        pasteboard.setString(TaskClipboard.markdown(block), forType: Self.tasksType)
+    }
+
+    func cutSelection() {
+        copySelection()
+        deleteSelection()
+    }
+
+    /// Deletes the selected rows, with everything under them, and goes on
+    /// editing the row above.
+    func deleteSelection() {
+        let ids = selectedIDs
+        guard let range = selectedRange, let first = ids.first, let last = ids.last else { return }
+        let target = neighbour(of: first, offset: -1) ?? neighbour(of: last, offset: 1)
+        clearSelection()
+        mutate {
+            $0.removeBlock(range)
+            if $0.isEmpty { $0.appendItem() }
+        }
+        if let target, outline.index(of: target) != nil {
+            requestFocus(target)
+        } else {
+            focusFirstRow()
+        }
+    }
+
+    /// Pastes in place of the selected rows.
+    func pasteOverSelection() {
+        guard let range = selectedRange,
+              let text = NSPasteboard.general.string(forType: .string)
+        else { return }
+        let block = pastedBlock(text)
+        guard !block.isEmpty else { return }
+        clearSelection()
+        var pasted = 0..<0
+        mutate { pasted = $0.replaceBlock(range, with: block) }
+        focusLastVisible(in: pasted)
+    }
+
+    /// Pastes several lines of text (or copied rows) as tasks after the row
+    /// `id`, or in place of it if it's empty.
+    func pasteRows(_ text: String, at id: UUID) {
+        guard let i = outline.index(of: id) else { return }
+        let block = pastedBlock(text)
+        guard !block.isEmpty else { return }
+        var pasted = 0..<0
+        mutate { pasted = $0.insertBlock(block, at: i) }
+        focusLastVisible(in: pasted)
+    }
+
+    /// Done if any selected task is open; otherwise all open again.
+    func toggleSelectionDone() {
+        let indices = selectedIDs.compactMap(outline.index(of:))
+        let done = indices.contains { !outline.items[$0].isHeading && outline.items[$0].state == .open }
+        mutate { $0.setDone(done, at: indices) }
+    }
+
+    /// Indents the selected rows that aren't under another selected row,
+    /// stopping at the first that can't be indented.
+    func indentSelection() {
+        let roots = selectionRoots
+        mutate { outline in
+            for id in roots {
+                guard let i = outline.index(of: id), outline.indent(at: i) else { break }
+            }
+        }
+    }
+
+    /// Outdents the selected rows that aren't under another selected row.
+    /// Last first, so they keep their order.
+    func outdentSelection() {
+        let roots = selectionRoots
+        mutate { outline in
+            for id in roots.reversed() {
+                if let i = outline.index(of: id) { outline.outdent(at: i) }
+            }
+        }
+    }
+
+    private var selectionRoots: [UUID] {
+        let ids = selectedIDs
+        let selected = Set(ids)
+        return ids.filter { id in
+            guard let i = outline.index(of: id), let parent = outline.parentIndex(i) else { return true }
+            return !selected.contains(outline.items[parent].id)
+        }
+    }
+
+    static let tasksType = NSPasteboard.PasteboardType(TaskClipboard.typeIdentifier)
+
+    /// Rows from pasted text. If it's what Listful copied, its own Markdown
+    /// is used instead, which keeps done and collapsed states.
+    private func pastedBlock(_ text: String) -> [TaskItem] {
+        let pasteboard = NSPasteboard.general
+        if pasteboard.string(forType: .string) == text,
+           let markdown = pasteboard.string(forType: Self.tasksType) {
+            return TaskClipboard.items(from: markdown)
+        }
+        return TaskClipboard.items(from: text)
+    }
+
+    private func focusLastVisible(in range: Range<Int>) {
+        let ids = Set(outline.items[range].map(\.id))
+        if let last = visibleItems.last(where: { ids.contains($0.id) }) { requestFocus(last.id) }
+    }
+
     // MARK: - Focus
 
     func requestFocus(_ id: UUID, caret: Int? = nil) {
+        clearSelection()
         focusedID = id
         focusRequestID = id
         focusRequestCaret = caret
@@ -331,6 +530,7 @@ final class TaskDocument {
 
     /// Called by a row's text field once it actually has keyboard focus.
     func didFocus(_ id: UUID) {
+        clearSelection()
         focusedID = id
         if focusRequestID == id { focusRequestID = nil }
     }
@@ -440,7 +640,19 @@ final class TaskDocument {
         pendingSave = nil
         let mine = MarkdownCodec.encode(outline)
         do {
-            guard let disk = try store.readText(), disk != syncedText else {
+            guard let disk = try store.readText() else {
+                if let syncedText {
+                    // The file was here and has gone: renamed or moved to the
+                    // Trash, perhaps on another Mac. Writing it would bring it
+                    // back under its old name, so unsaved edits go in a copy.
+                    if mine != syncedText { keepAsCopy(mine, because: "was renamed or deleted somewhere else") }
+                    return
+                }
+                try store.writeText(mine)
+                syncedText = mine
+                return
+            }
+            guard disk != syncedText else {
                 try store.writeText(mine)
                 syncedText = mine
                 return
@@ -459,6 +671,19 @@ final class TaskDocument {
             }
         } catch {
             errorMessage = "Couldn't save \(fileURL.lastPathComponent): \(error.localizedDescription)"
+        }
+    }
+
+    /// Writes `text` beside the file as a conflict copy, and says why.
+    private func keepAsCopy(_ text: String, because reason: String) {
+        let copy = TaskLibrary.conflictCopyURL(for: fileURL)
+        do {
+            try MarkdownFileStore(fileURL: copy).writeText(text)
+            errorMessage = "“\(fileName)” \(reason) while you were editing it here. "
+                + "Your latest changes are saved as “\(TaskLibrary.displayName(of: copy))”."
+        } catch {
+            errorMessage = "“\(fileName)” \(reason), and your latest changes couldn't be saved: "
+                + error.localizedDescription
         }
     }
 }

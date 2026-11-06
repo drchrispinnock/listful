@@ -8,6 +8,15 @@ enum TaskFieldCommand {
     /// Delete with the caret at the very start.
     case deleteAtStart
     case indent, outdent, focusPrevious, focusNext
+    /// Shift-Up/Down: select rows instead of editing text.
+    case extendSelection(up: Bool)
+    /// Escape: select this row.
+    case selectRow
+    /// Text with line breaks pasted (or dropped) in: becomes tasks.
+    case pasteLines(String)
+    /// Shift-click on a row that isn't being edited, or a drag across rows
+    /// reaching this one: extend the selection to it.
+    case shiftClick
 }
 
 /// A borderless NSTextField that wraps long titles onto further lines. SwiftUI's TextField can't intercept
@@ -33,6 +42,7 @@ struct TaskTextField: NSViewRepresentable {
     func makeNSView(context: Context) -> FocusReportingTextField {
         let field = FocusReportingTextField()
         field.delegate = context.coordinator
+        field.onCommand = { [weak coordinator = context.coordinator] in coordinator?.parent.onCommand($0) }
         field.isBordered = false
         field.isBezeled = false
         field.drawsBackground = false
@@ -136,6 +146,10 @@ struct TaskTextField: NSViewRepresentable {
             case #selector(NSResponder.insertBacktab(_:)): command = .outdent
             case #selector(NSResponder.moveUp(_:)): command = .focusPrevious
             case #selector(NSResponder.moveDown(_:)): command = .focusNext
+            case #selector(NSResponder.moveUpAndModifySelection(_:)): command = .extendSelection(up: true)
+            case #selector(NSResponder.moveDownAndModifySelection(_:)): command = .extendSelection(up: false)
+            // Escape arrives as cancelOperation:, which a text view turns into complete:.
+            case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.complete(_:)): command = .selectRow
             case #selector(NSResponder.deleteBackward(_:)) where textView.selectedRange() == NSRange(location: 0, length: 0):
                 command = .deleteAtStart
             default: return false
@@ -148,12 +162,112 @@ struct TaskTextField: NSViewRepresentable {
 
 /// Tells the row when it gains focus by click, so the document's
 /// `focusedID` follows the user and menu commands target the right task.
+/// Also passes on Shift-clicks and drags across rows, for selecting rows.
 final class FocusReportingTextField: NSTextField {
     var onFocus: (() -> Void)?
+    var onCommand: ((TaskFieldCommand) -> Void)?
+
+    override class var cellClass: AnyClass? {
+        get { TaskFieldCell.self }
+        set {}
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // Once editing, clicks go to the field editor instead.
+        if event.modifierFlags.contains(.shift), let onCommand {
+            onCommand(.shiftClick)
+            return
+        }
+        if !RowDragTracker.track(event, from: self) { super.mouseDown(with: event) }
+    }
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         if accepted { onFocus?() }
         return accepted
+    }
+}
+
+/// Gives every row the same `TaskFieldEditor` in place of the window's.
+final class TaskFieldCell: NSTextFieldCell {
+    @MainActor private static let editor: TaskFieldEditor = {
+        let editor = TaskFieldEditor()
+        editor.isFieldEditor = true
+        // As the window's own field editor has, for Cmd-Z while typing.
+        editor.allowsUndo = true
+        return editor
+    }()
+
+    override func fieldEditor(for controlView: NSView) -> NSTextView? {
+        Self.editor
+    }
+}
+
+/// The text view that edits a row. It turns a drag that leaves the row
+/// into selecting rows, and pasted text with line breaks, which a row
+/// can't hold, into tasks.
+final class TaskFieldEditor: NSTextView {
+    private var field: FocusReportingTextField? { delegate as? FocusReportingTextField }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let field, RowDragTracker.track(event, from: field) else {
+            super.mouseDown(with: event)
+            return
+        }
+    }
+
+    // Typing can't produce a line break (Return is a command), so one
+    // here means a paste or a drop.
+    override func shouldChangeText(in range: NSRange, replacementString string: String?) -> Bool {
+        if let string, string.contains(where: \.isNewline), let onCommand = field?.onCommand {
+            onCommand(.pasteLines(string))
+            return false
+        }
+        return super.shouldChangeText(in: range, replacementString: string)
+    }
+}
+
+/// Decides whether a press in a row's text is a click, a drag to select
+/// text, or a drag across rows to select them, by watching the first
+/// moves itself. A click or text drag is handed back: the events seen so
+/// far are put back in the queue for the text view's own tracking.
+@MainActor
+enum RowDragTracker {
+    /// Returns true if it handled the press as a drag across rows.
+    static func track(_ down: NSEvent, from field: FocusReportingTextField) -> Bool {
+        guard down.clickCount == 1, let window = field.window, let onCommand = field.onCommand else { return false }
+        let start = field.convert(down.locationInWindow, from: nil)
+        var seen: [NSEvent] = []
+        while let event = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            seen.append(event)
+            let point = field.convert(event.locationInWindow, from: nil)
+            if event.type == .leftMouseUp || abs(point.x - start.x) > 3 && field.bounds.contains(point) {
+                // A click, or a drag along the text.
+                for event in seen.reversed() { NSApp.postEvent(event, atStart: true) }
+                return false
+            }
+            if point.y < field.bounds.minY || point.y > field.bounds.maxY { break }
+        }
+        onCommand(.selectRow)
+        var last: FocusReportingTextField? = field
+        while let event = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]), event.type == .leftMouseDragged {
+            field.autoscroll(with: event)
+            let hit = window.contentView?.hitTest(event.locationInWindow)
+            if let row = hit.flatMap(enclosingRow), row !== last {
+                row.onCommand?(.shiftClick)
+                last = row
+            }
+        }
+        return true
+    }
+
+    /// The row field `view` is part of, if any.
+    private static func enclosingRow(of view: NSView) -> FocusReportingTextField? {
+        var view: NSView? = view
+        while let current = view {
+            if let row = current as? FocusReportingTextField { return row }
+            view = current.superview
+        }
+        return nil
     }
 }

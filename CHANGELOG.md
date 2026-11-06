@@ -4,13 +4,47 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
-## Unreleased
+## 0.4 — 2026-11-06
 
+- **Select several tasks.** Shift-Up or Shift-Down while editing a task
+  selects it and the tasks above or below; Shift-click selects everything
+  down to the task you click; dragging from one task's text into another
+  selects the tasks in between; Escape selects the task you're editing.
+  Selected tasks are highlighted. Then:
+  - **Copy, Cut and Paste** work on whole tasks, with any tasks nested
+    under them. Copied tasks paste into other apps as a Markdown list.
+    Paste with tasks selected replaces them.
+  - **Delete** removes them, **Tab** and **Shift-Tab** indent and outdent
+    them, and **Cmd-Return** marks them done (or open again if they're all
+    done already).
+  - **Up** and **Down** move the selection, **Cmd-A** selects every task,
+    and **Return** or **Escape** go back to editing.
+- **Paste several lines as tasks.** Pasting text with more than one line
+  into a task, from Listful or another app, adds each line as a task below
+  it, keeping any Markdown nesting, ticks and headings. Pasted into an
+  empty task, the lines take its place.
 - **Delete at the start of a task joins it to the one above.** The task's
   text is added to the end of the task above, with the cursor where they
   meet, and its subtasks come along as that task's last subtasks. Before,
   Delete only removed a task once it was empty. Delete at the start of a
   heading turns it back into a task, as it already did for an empty one.
+- **Listful on several Macs.** If you run Listful on more than one Mac
+  sharing a folder through iCloud:
+  - **Only the Mac you're using makes repeating copies.** At midnight, or
+    when a Mac wakes, Listful now waits until someone is actually using
+    that Mac before making a new period's copy, and after a wake it gives
+    iCloud 45 seconds to bring in a copy made elsewhere. Before, every
+    Mac with Listful open made its own copy at midnight, and iCloud kept
+    them all, renaming the extras ("Daily 2026-11-06 2").
+  - **Duplicate copies are merged.** If two Macs do make the same copy,
+    the second is folded into the first: a task ticked in either stays
+    ticked, tasks added to only one are kept, and the duplicate goes to
+    the Trash. Until then it's listed under its template, marked "(2)",
+    rather than among your other lists.
+  - **A list renamed or deleted on another Mac stays gone.** If that
+    happened while it was open here, Listful could write it back under its
+    old name. Now it doesn't; any changes you'd just made are saved beside
+    it as a conflict copy instead.
 
 ## 0.3.2 — 2026-11-04
 

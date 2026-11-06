@@ -53,7 +53,7 @@ struct ListfulApp: App {
                 .keyboardShortcut("s")
         }
         CommandMenu("Task") {
-            Button("Toggle Done") { onFocused { $0.toggleDone($1) } }
+            Button("Toggle Done") { onSelectionOrFocused({ $0.toggleSelectionDone() }, { $0.toggleDone($1) }) }
                 .keyboardShortcut(.return, modifiers: .command)
             Divider()
             Button("Collapse") { onFocused { $0.setCollapsed(true, for: $1) } }
@@ -61,8 +61,8 @@ struct ListfulApp: App {
             Button("Expand") { onFocused { $0.setCollapsed(false, for: $1) } }
                 .keyboardShortcut(.downArrow, modifiers: .command)
             Divider()
-            Button("Indent") { onFocused { $0.indent($1) } }
-            Button("Outdent") { onFocused { $0.outdent($1) } }
+            Button("Indent") { onSelectionOrFocused({ $0.indentSelection() }, { $0.indent($1) }) }
+            Button("Outdent") { onSelectionOrFocused({ $0.outdentSelection() }, { $0.outdent($1) }) }
             Button("Move Up") { onFocused { $0.moveUp($1) } }
                 .keyboardShortcut(.upArrow, modifiers: [.command, .shift])
             Button("Move Down") { onFocused { $0.moveDown($1) } }
@@ -84,6 +84,16 @@ struct ListfulApp: App {
             Toggle("Show Decrufted Tasks", isOn: Bindable(library.options).showDecrufted)
                 .keyboardShortcut("h", modifiers: [.command, .shift])
             Divider()
+        }
+    }
+
+    /// Runs a menu action on the selected rows if there are any, otherwise
+    /// on the current task.
+    private func onSelectionOrFocused(_ selection: (TaskDocument) -> Void, _ focused: (TaskDocument, UUID) -> Void) {
+        if let document = library.document, document.hasSelection {
+            selection(document)
+        } else {
+            onFocused(focused)
         }
     }
 

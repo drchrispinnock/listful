@@ -14,18 +14,79 @@ public enum RepeatingChecklists {
     /// The lists among `lists` that are copies of the template called
     /// `template`, newest first. A copy is "<template> <key>" for a period key
     /// of any frequency, so copies made before a schedule change still count.
+    /// So is "<template> <key> <n>", the name iCloud gives a second copy when
+    /// two Macs make the same one; it comes after the copy it duplicates.
     public static func copies(ofTemplateNamed template: String, in lists: [URL]) -> [URL] {
-        let prefix = template + " "
-        return lists
-            .compactMap { url -> (key: String, url: URL)? in
-                let name = TaskLibrary.displayName(of: url)
-                guard name.hasPrefix(prefix) else { return nil }
-                let key = String(name.dropFirst(prefix.count))
-                let isKey = RepeatSchedule.Frequency.allCases.contains { RepeatSchedule(frequency: $0).isPeriodKey(key) }
-                return isKey ? (key, url) : nil
+        lists
+            .compactMap { url -> (key: String, duplicate: Int, url: URL)? in
+                guard let (key, duplicate) = copyKey(of: url, template: template) else { return nil }
+                return (key, duplicate, url)
             }
-            .sorted { $0.key > $1.key }
+            .sorted { ($0.key, -$0.duplicate) > ($1.key, -$1.duplicate) }
             .map(\.url)
+    }
+
+    /// The period key and duplicate number (0 for the copy itself) of a copy
+    /// of `template`; nil if `url` isn't one.
+    public static func copyKey(of url: URL, template: String) -> (key: String, duplicate: Int)? {
+        let prefix = template + " "
+        let name = TaskLibrary.displayName(of: url)
+        guard name.hasPrefix(prefix) else { return nil }
+        var key = String(name.dropFirst(prefix.count))
+        var duplicate = 0
+        if let space = key.lastIndex(of: " "), let n = Int(key[key.index(after: space)...]), n > 0 {
+            duplicate = n
+            key = String(key[..<space])
+        }
+        let isKey = RepeatSchedule.Frequency.allCases.contains { RepeatSchedule(frequency: $0).isPeriodKey(key) }
+        return isKey ? (key, duplicate) : nil
+    }
+
+    /// `duplicate`, a second copy of the same period, folded into `original`.
+    /// A task both have (by title, under the same heading and parent) is
+    /// done if it's done in either; tasks only the duplicate has are added
+    /// after the original's, under the same heading.
+    public static func merging(_ duplicate: Outline, into original: Outline) -> Outline {
+        var merged = sections(of: original.items)
+        for section in sections(of: duplicate.items) {
+            let nodes = dropBlank(section.nodes)
+            if let target = merged.firstIndex(where: { sameHeading($0.heading, section.heading) }) {
+                fold(nodes, into: &merged[target].nodes)
+            } else if section.heading == nil {
+                merged.insert(Section(heading: nil, nodes: nodes), at: 0)
+            } else {
+                merged.append(Section(heading: section.heading, nodes: nodes))
+            }
+        }
+        return Outline(title: original.title, items: flatten(merged), schedule: original.schedule)
+    }
+
+    /// Merges each duplicate copy (see `copies(ofTemplateNamed:in:)`) into
+    /// its original and moves it to the Trash, except `keeping` (the open
+    /// list, which may have unsaved edits). The original is written first,
+    /// so nothing is lost if trashing fails. Returns the duplicates trashed.
+    public static func mergeDuplicates(templates: TaskLibrary, lists: TaskLibrary, keeping: URL? = nil) -> [URL] {
+        guard let templateURLs = try? templates.lists(), let listURLs = try? lists.lists() else { return [] }
+        var trashed: [URL] = []
+        for template in templateURLs.map(TaskLibrary.displayName(of:)) {
+            for url in listURLs where url != keeping {
+                guard let (key, duplicate) = copyKey(of: url, template: template), duplicate > 0 else { continue }
+                let originalStore = MarkdownFileStore(fileURL: lists.url(forName: copyName(template: template, key: key)))
+                do {
+                    guard let originalText = try originalStore.readText(),
+                          let duplicateText = try MarkdownFileStore(fileURL: url).readText()
+                    else { continue }
+                    let merged = MarkdownCodec.encode(merging(
+                        MarkdownCodec.decode(duplicateText), into: MarkdownCodec.decode(originalText)))
+                    if merged != originalText { try originalStore.writeText(merged) }
+                    try lists.trashList(at: url)
+                    trashed.append(url)
+                } catch {
+                    continue
+                }
+            }
+        }
+        return trashed
     }
 
     /// Whether a list has any task left to do (a blank row doesn't count).
@@ -248,6 +309,20 @@ public enum RepeatingChecklists {
 
     private static func isBlank(_ node: Node) -> Bool {
         !node.item.isHeading && node.children.isEmpty && node.item.title.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Adds `incoming` after `nodes`, except that a task `nodes` already has
+    /// (by title) takes its done state if it's done there, and gets its
+    /// subtasks folded in the same way.
+    private static func fold(_ incoming: [Node], into nodes: inout [Node]) {
+        for node in incoming {
+            if let i = nodes.firstIndex(where: { sameTitle($0.item, node.item) }) {
+                if nodes[i].item.state == .open { nodes[i].item.state = node.item.state }
+                fold(node.children, into: &nodes[i].children)
+            } else {
+                nodes.append(node)
+            }
+        }
     }
 
     /// Adds `carried` before `nodes`, except that a task `nodes` already has

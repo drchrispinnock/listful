@@ -77,6 +77,7 @@ final class LibraryModel {
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
     @ObservationIgnored private var isMakingCopies = false
     @ObservationIgnored private var needsCopiesAgain = false
+    @ObservationIgnored private var copiesWait: Task<Void, Never>?
 
     init() {
         let folder = UserDefaults.standard.url(forKey: Keys.folder) ?? Self.defaultFolderURL
@@ -101,20 +102,26 @@ final class LibraryModel {
             MainActor.assumeIsolated {
                 self?.refreshLists()
                 self?.document?.checkDisk()
+                self?.copiesWait?.cancel()
                 self?.makeDueCopies()
             }
         }
         // A new day or a wake from sleep can start a repeating checklist's
-        // next period while the app is already in front.
+        // next period while the app is already in front. Copies are made
+        // then only if someone is using this Mac: with Listful running on
+        // several Macs sharing the folder through iCloud, the idle ones
+        // would each make the same copy before the first one's had synced.
         dayObserver = NotificationCenter.default.addObserver(
             forName: .NSCalendarDayChanged, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.makeDueCopies() }
+            MainActor.assumeIsolated { self?.makeDueCopiesWhenInUse() }
         }
+        // After a wake, iCloud needs a moment to bring in copies made
+        // elsewhere while this Mac slept.
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.makeDueCopies() }
+            MainActor.assumeIsolated { self?.makeDueCopiesWhenInUse(after: .seconds(45)) }
         }
     }
 
@@ -179,7 +186,8 @@ final class LibraryModel {
             // don't save: that would recreate the file where it used to be.
             if document != nil { dropDocument(saving: false) }
         } else if !current.contains(selection) && !currentTemplates.contains(selection) && !linkedFiles.contains(selection) {
-            dropDocument(saving: false)
+            // Saving won't recreate it; unsaved edits are kept in a copy.
+            dropDocument(saving: true)
             self.selection = nil
         } else if document == nil {
             // A missing linked file has come back.
@@ -261,7 +269,13 @@ final class LibraryModel {
     func copyLabel(of url: URL, template: URL) -> String {
         let name = displayName(of: url)
         let prefix = displayName(of: template) + " — "
-        return name.hasPrefix(prefix) ? String(name.dropFirst(prefix.count)) : name
+        let label = name.hasPrefix(prefix) ? String(name.dropFirst(prefix.count)) : name
+        // A second copy of the same period, as iCloud names it.
+        if let (_, duplicate) = RepeatingChecklists.copyKey(of: url, template: TaskLibrary.displayName(of: template)),
+           duplicate > 0 {
+            return "\(label) (\(duplicate))"
+        }
+        return label
     }
 
     /// The sidebar name for a list: its `#` title (live, for the open list)
@@ -480,8 +494,29 @@ final class LibraryModel {
         }
     }
 
+    /// Makes the copies that are due once this Mac is in use: after `delay`,
+    /// as soon as there's been keyboard or mouse input in the last minute.
+    private func makeDueCopiesWhenInUse(after delay: Duration = .zero) {
+        copiesWait?.cancel()
+        copiesWait = Task {
+            try? await Task.sleep(for: delay)
+            while !Task.isCancelled {
+                if Self.secondsSinceInput < 60 {
+                    makeDueCopies()
+                    return
+                }
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
+    }
+
+    private static var secondsSinceInput: Double {
+        // ~0 is kCGAnyInputEventType.
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+    }
+
     /// Makes any repeating checklist copies that are due, off the main
-    /// thread. If the open list was the previous copy, the new one is opened
+    /// thread, and merges away duplicate copies. If the open list was the previous copy, the new one is opened
     /// in its place. Overlapping requests run once more afterwards.
     func makeDueCopies() {
         guard !isMakingCopies else {
@@ -491,14 +526,17 @@ final class LibraryModel {
         isMakingCopies = true
         // Save first, so tasks being carried over include the latest edits.
         document?.saveNow()
-        let templates = templateLibrary, lists = library
+        let templates = templateLibrary, lists = library, open = selection
         Task {
-            let results = await Task.detached {
-                RepeatingChecklists.makeDueCopies(
+            let (results, trashed) = await Task.detached {
+                let results = RepeatingChecklists.makeDueCopies(
                     templates: templates, lists: lists, date: Date(), calendar: .current, locale: .current)
+                // When two Macs make the same copy, iCloud keeps both, renaming one.
+                let trashed = RepeatingChecklists.mergeDuplicates(templates: templates, lists: lists, keeping: open)
+                return (results, trashed)
             }.value
             isMakingCopies = false
-            if !results.isEmpty { refreshLists() }
+            if !results.isEmpty || !trashed.isEmpty { refreshLists() }
             if let error = results.compactMap(\.error).first { errorMessage = error }
             if let moved = results.first(where: { $0.copy != nil && $0.previous != nil && $0.previous == selection }) {
                 collapsedTemplates.remove(moved.template)

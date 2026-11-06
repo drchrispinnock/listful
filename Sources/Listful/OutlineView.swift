@@ -9,6 +9,7 @@ struct OutlineView: View {
 
     var body: some View {
         let rows = document.visibleItems
+        let selected = Set(document.selectedIDs)
         ScrollViewReader { proxy in
             ScrollView {
                 // Not lazy: every row's text field must exist so focus can move to it.
@@ -22,7 +23,7 @@ struct OutlineView: View {
                             .padding(.bottom, 10)
                     }
                     ForEach(rows) { item in
-                        TaskRow(item: item, document: document)
+                        TaskRow(item: item, document: document, isSelected: selected.contains(item.id))
                     }
                     if rows.isEmpty {
                         Button("New Task") { document.appendTask() }
@@ -48,6 +49,7 @@ struct OutlineView: View {
             .onChange(of: document.focusedID) { scrollToFocused(proxy) }
             .onChange(of: rows.first { $0.id == document.focusedID }?.title) { scrollToFocused(proxy) }
         }
+        .background(SelectionKeyHandler(document: document))
         .background(Color(nsColor: .textBackgroundColor))
         .navigationTitle(document.displayTitle)
         .sheet(isPresented: $document.isEditingSchedule) { EditScheduleSheet(document: document) }
@@ -102,6 +104,7 @@ struct RowFramesKey: PreferenceKey {
 struct TaskRow: View {
     let item: TaskItem
     let document: TaskDocument
+    var isSelected = false
     @AppStorage(DisplaySettings.showTick) private var showTick = true
     @AppStorage(DisplaySettings.showStrikethrough) private var showStrikethrough = true
 
@@ -131,6 +134,13 @@ struct TaskRow: View {
         .padding(.top, topPadding)
         .padding(.bottom, 2)
         .opacity(opacity)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.accentColor.opacity(0.2))
+                    .padding(.horizontal, -4)
+            }
+        }
         .background {
             GeometryReader { geometry in
                 Color.clear.preference(
@@ -237,6 +247,10 @@ struct TaskRow: View {
         case .focusPrevious: document.focusPrevious(from: item.id)
         case .focusNext: document.focusNext(from: item.id)
         case .deleteAtStart: document.deleteAtStart(item.id)
+        case .extendSelection(let up): document.extendSelection(by: up ? -1 : 1)
+        case .selectRow: document.select(item.id)
+        case .pasteLines(let text): document.pasteRows(text, at: item.id)
+        case .shiftClick: document.extendSelection(to: item.id)
         }
     }
 }

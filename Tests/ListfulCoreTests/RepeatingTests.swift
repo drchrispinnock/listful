@@ -264,6 +264,41 @@ private func key(_ schedule: RepeatSchedule, on text: String) -> String {
         #expect(names == ["Routine 2026-Q4", "Routine 2026-11-03", "Routine 2026-11-02"])
     }
 
+    @Test func iCloudDuplicatesCountAsCopiesAfterTheirOriginal() {
+        let urls = ["Routine 2026-11-03 2", "Routine 2026-11-03", "Routine 2026-11-02", "Routine 2026-11-03 notes"]
+            .map(lists.url(forName:))
+        let names = RepeatingChecklists.copies(ofTemplateNamed: "Routine", in: urls).map(TaskLibrary.displayName(of:))
+        #expect(names == ["Routine 2026-11-03", "Routine 2026-11-03 2", "Routine 2026-11-02"])
+        #expect(RepeatingChecklists.copyKey(of: urls[0], template: "Routine")! == ("2026-11-03", 2))
+    }
+
+    @Test func aDuplicateFoldsIntoItsOriginal() {
+        let original = MarkdownCodec.decode("# Routine\n\n- [x] Stretch\n- [ ] Call Bob\n  - [ ] Ask about Friday\n\n## Evening\n\n- [ ] Read\n")
+        let duplicate = MarkdownCodec.decode("# Routine\n\n- [ ] Stretch\n- [ ] Call Bob\n  - [x] Ask about Friday\n  - [ ] Book table\n- [ ] \n\n## Evening\n\n- [x] Read\n- [ ] Walk\n\n## Notes\n\n- [ ] Idea\n")
+        let merged = RepeatingChecklists.merging(duplicate, into: original)
+        #expect(MarkdownCodec.encode(merged) == """
+            # Routine
+
+            - [x] Stretch
+            - [ ] Call Bob
+              - [x] Ask about Friday
+              - [ ] Book table
+
+            ## Evening
+
+            - [x] Read
+            - [ ] Walk
+
+            ## Notes
+
+            - [ ] Idea
+
+            """)
+        // An untouched duplicate changes nothing.
+        let untouched = MarkdownCodec.decode("# Routine\n\n- [ ] Stretch\n- [ ] Call Bob\n  - [ ] Ask about Friday\n\n## Evening\n\n- [ ] Read\n")
+        #expect(RepeatingChecklists.merging(untouched, into: original) == original)
+    }
+
     @Test func blankRowsDontCountAsOpen() {
         #expect(!RepeatingChecklists.hasOpenTasks(MarkdownCodec.decode("## Done\n\n- [x] Stretch\n- [ ] \n")))
         #expect(RepeatingChecklists.hasOpenTasks(MarkdownCodec.decode("- [x] Stretch\n  - [ ] Hamstrings\n")))

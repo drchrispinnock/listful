@@ -488,4 +488,92 @@ public struct Outline: Equatable, Sendable {
         items = kept
         return count
     }
+
+    // MARK: - Blocks of rows
+
+    /// The items a selection of rows from `first` to `last` covers: those
+    /// rows plus everything hidden under them (subtasks, and the section of
+    /// a collapsed heading).
+    public func blockRange(from first: Int, to last: Int) -> Range<Int> {
+        var end = last + 1
+        for i in first...last {
+            let itemEnd = items[i].isHeading
+                ? (items[i].isCollapsed ? sectionEnd(i) : i + 1)
+                : subtreeEnd(i)
+            end = max(end, itemEnd)
+        }
+        return first..<end
+    }
+
+    /// The items in `range`, moved out so the shallowest is top level.
+    public func blockItems(_ range: Range<Int>) -> [TaskItem] {
+        guard let base = items[range].map(\.depth).min() else { return [] }
+        return items[range].map { item in
+            var item = item
+            item.depth -= base
+            return item
+        }
+    }
+
+    /// Removes the items in `range`. Anything after it that would now be
+    /// nested too deeply moves out to fit.
+    public mutating func removeBlock(_ range: Range<Int>) {
+        items.removeSubrange(range)
+        self = Outline(title: title, items: items, schedule: schedule)
+    }
+
+    /// Inserts `block` (as from `blockItems`, with fresh ids) where a new
+    /// task after `index` would go, at that task's depth. If the row at
+    /// `index` is an empty task with nothing under it, the block replaces
+    /// it. Returns the range the block now occupies.
+    @discardableResult
+    public mutating func insertBlock(_ block: [TaskItem], at index: Int) -> Range<Int> {
+        guard !block.isEmpty else { return index..<index }
+        let row = items[index]
+        if !row.isHeading, row.title.isEmpty, !hasChildren(index) {
+            return replaceBlock(index..<(index + 1), with: block)
+        }
+        let position: Int
+        let depth: Int
+        if row.isHeading {
+            (position, depth) = (row.isCollapsed ? sectionEnd(index) : index + 1, 0)
+        } else if hasChildren(index) && !row.isCollapsed {
+            (position, depth) = (index + 1, row.depth + 1)
+        } else {
+            (position, depth) = (subtreeEnd(index), row.depth)
+        }
+        return place(block, in: position..<position, depth: depth)
+    }
+
+    /// Replaces the items in `range` with `block` (with fresh ids), at the
+    /// depth of the first item replaced. Returns the range the block occupies.
+    @discardableResult
+    public mutating func replaceBlock(_ range: Range<Int>, with block: [TaskItem]) -> Range<Int> {
+        place(block, in: range, depth: items[range.lowerBound].depth)
+    }
+
+    private mutating func place(_ block: [TaskItem], in range: Range<Int>, depth: Int) -> Range<Int> {
+        let base = block.map(\.depth).min() ?? 0
+        let added = block.map { item in
+            var item = item
+            item.id = UUID()
+            item.depth += depth - base
+            return item
+        }
+        items.replaceSubrange(range, with: added)
+        self = Outline(title: title, items: items, schedule: schedule)
+        if !added.isEmpty { reveal(range.lowerBound) }
+        return range.lowerBound..<(range.lowerBound + added.count)
+    }
+
+    /// Marks the tasks at `indices` done, or open again.
+    public mutating func setDone(_ done: Bool, at indices: [Int]) {
+        for i in indices where !items[i].isHeading {
+            if done {
+                if items[i].state == .open { items[i].state = .done }
+            } else {
+                items[i].state = .open
+            }
+        }
+    }
 }
