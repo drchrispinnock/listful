@@ -3,3 +3,5 @@
 .DS_Store
 dist/
 *.key
+iOS/Listful.xcodeproj/
+iOS/build/

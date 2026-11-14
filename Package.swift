@@ -16,7 +16,7 @@ let package = Package(
         .target(name: "ListfulCore"),
         .executableTarget(
             name: "Listful",
-            dependencies: ["ListfulCore", .product(name: "Sparkle", package: "Sparkle")],
+            dependencies: ["ListfulCore", .product(name: "Sparkle", package: "Sparkle", condition: .when(platforms: [.macOS]))],
             resources: [.copy("Resources/AppIcon.png")]
         ),
         .testTarget(name: "ListfulCoreTests", dependencies: ["ListfulCore"]),

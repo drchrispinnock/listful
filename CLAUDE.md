@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**Listful** — a native macOS outliner-style task manager (Workflowy-like, no subscription), in Swift/SwiftUI. (Formerly TaskMgr.) Requirements live in `spec/specification.md`.
+**Listful** — a native macOS (and, in `iOS/`, iPhone/iPad) outliner-style task manager (Workflowy-like, no subscription), in Swift/SwiftUI. (Formerly TaskMgr.) Requirements live in `spec/specification.md`.
 
 ## Commands
 
-The machine has only the Command Line Tools (no Xcode), so everything goes through SwiftPM:
+The Mac app is built with SwiftPM (it was written when the machine had only the Command Line Tools, and still builds with them); Xcode is now installed too, for the iOS app:
 
 ```sh
 swift build                                   # build
@@ -19,7 +19,12 @@ swift run Listful                             # launch the app
 .build/debug/Listful -libraryFolder /some/dir # launch against another task-list folder (NSArgumentDomain overrides the saved default)
 scripts/release                               # signed + notarized dist/Listful-<VERSION>.dmg (setup in README)
 scripts/release --adhoc                       # same packaging, local signature, no notarization
+cd iOS && xcodegen generate                   # iOS: regenerate Listful.xcodeproj from project.yml (not checked in)
+xcodebuild -project iOS/Listful.xcodeproj -scheme "Listful iOS" -destination 'generic/platform=iOS Simulator' -derivedDataPath iOS/build build
+xcrun simctl launch booted com.chrispinnock.listful -testFolder /some/dir   # DEBUG builds: skip the folder picker
 ```
+
+**iOS app (`iOS/`).** An XcodeGen project (`project.yml`; target `Listful iOS`, product and bundle ID as on the Mac, team CP8YGC8C4P, iOS 17+, iPhone and iPad) using `ListfulCore` from the root package as a local package. `FolderAccess` keeps the user-picked folder (`.fileImporter`) as a bookmark. `LibraryStore` and `ListDocument` are the counterparts of `LibraryModel`/`TaskDocument`, sharing Core for everything else, including saving and merging (`FileSync`). iOS gives no dependable notice of iCloud Drive changes, so while active it polls (folder and open list every 4 s) and catches up on becoming active; it saves when going inactive. Return in a row arrives as a newline in the vertical `TextField`'s text, which `ListDocument.setTitle` turns into `Outline.returnKey`. Drag-to-reorder is `List.onMove`, mapped to `Outline.dropTarget`/`move`. Not yet on iOS: linked folders/files, creating templates or editing schedules, row selection and copy/paste of rows, joining rows with Delete. The iOS target builds with Xcode, so SwiftUI macros like `@State` are fine there (not in the Mac target).
 
 Releases: bump `VERSION`; the bundle comes from `packaging/Info.plist` (placeholders filled by the script; bundle ID `com.chrispinnock.listful`). The script embeds Sparkle (`Contents/Frameworks`, XPC services stripped since the app isn't sandboxed, signed inside-out) and writes `dist/appcast.xml`; upload it with the DMG to the GitHub release `v<VERSION>` (README has the commands). `Updater` only starts Sparkle when Info.plist has `SUFeedURL`, so under `swift run` Check for Updates is hidden. The universal build prints a spurious "x86_64 deprecated for macOS 27.0" warning — the binary's minimum is really 14.0 (check with `otool -l … | grep minos`).
 
@@ -29,7 +34,7 @@ Use `scripts/test` rather than bare `swift test`: with only the CLT, SwiftPM int
 
 ## Toolchain constraints
 
-- **Don't use `@State` (or other SwiftUI macros like `@Entry`/`@Previewable`).** In this SDK they're macros whose plugin ships only with Xcode, so they fail to build with the CLT. `@Observable` and `@Bindable` work. The app holds its `LibraryModel` as a plain `let` on the `App` struct.
+- **In the Mac target, don't use `@State` (or other SwiftUI macros like `@Entry`/`@Previewable`).** In this SDK they're macros whose plugin ships only with Xcode, so they fail to build with the CLT. `@Observable` and `@Bindable` work. The app holds its `LibraryModel` as a plain `let` on the `App` struct.
 - Deployment target is macOS 14; the SDK is newer, so watch for APIs that are SDK-newer than 14 (e.g. `UTType.markdown` is 27+).
 - Settings live in a defaults domain that depends on how the app runs: `Listful` (executable name) under `swift run`, `com.chrispinnock.listful` for the packaged app. `SettingsMigration` copies older domains (`Listful`, `TaskMgr`) forward once at startup, never overwriting.
 - Under `swift run` there's no `.app` bundle, so `AppDelegate` sets the Dock icon at launch from `Resources/AppIcon.png` (a 1024px copy of `spec/icon.png`; regenerate with `sips -z 1024 1024 spec/icon.png --out Sources/Listful/Resources/AppIcon.png`) via `Bundle.module` — only when `Bundle.main.bundleIdentifier == nil`. `spec/icon.png` must stay a plain, fully opaque rounded square (824px, centred on a 1024px transparent canvas, nothing outside it): macOS 26+ shrinks any other icon shape into a grey tile. The packaged app uses `AppIcon.icns` (built from `spec/icon.png` by `scripts/release`) and doesn't contain SwiftPM's resource bundle, so **never touch `Bundle.module` on the bundled path** — its accessor `fatalError`s when the bundle is missing.
