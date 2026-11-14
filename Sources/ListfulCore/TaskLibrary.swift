@@ -117,11 +117,61 @@ public struct TaskLibrary: Sendable {
         FileManager.default.fileExists(atPath: url.path) || placeholderExists(for: url)
     }
 
+    // MARK: - Subfolders
+
+    /// The folders directly inside this one that hold lists of their own,
+    /// sorted like Finder: every visible subfolder except Templates. URLs
+    /// are rebuilt from `folderURL`, with a trailing slash, so they compare
+    /// equal across calls.
+    public func subfolders() throws -> [URL] {
+        try FileManager.default
+            .contentsOfDirectory(at: folderURL, includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
+                                 options: [.skipsHiddenFiles])
+            .filter { url in
+                let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+                return values?.isDirectory == true && values?.isPackage != true
+                    && url.lastPathComponent != templatesFolderURL.lastPathComponent
+            }
+            .map { folderURL(named: $0.lastPathComponent) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    public func folderURL(named name: String) -> URL {
+        folderURL.appending(path: name, directoryHint: .isDirectory)
+    }
+
+    @discardableResult
+    public func createFolder(named rawName: String) throws -> URL {
+        let name = try Self.validatedName(rawName, keepingExtension: true)
+        let url = folderURL(named: name)
+        guard !Self.fileExists(url) else { throw TaskLibraryError.alreadyExists(name) }
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    public func renameFolder(at url: URL, to rawName: String) throws -> URL {
+        let name = try Self.validatedName(rawName, keepingExtension: true)
+        guard name != templatesFolderURL.lastPathComponent else { throw TaskLibraryError.alreadyExists(name) }
+        let destination = folderURL(named: name)
+        guard destination.path != url.path else { return url }
+        let isCaseChange = destination.path.lowercased() == url.path.lowercased()
+        if !isCaseChange && Self.fileExists(destination) {
+            throw TaskLibraryError.alreadyExists(name)
+        }
+        try Self.move(url, to: destination)
+        return destination
+    }
+
+    /// Moves a subfolder, and every list in it, to the Trash.
+    public func trashFolder(at url: URL) throws {
+        try trashList(at: url)
+    }
+
     /// "Untitled", or "Untitled 2", "Untitled 3"… if taken.
     public func suggestedNewName(base: String = "Untitled") -> String {
         var name = base
         var counter = 2
-        while Self.fileExists(url(forName: name)) {
+        while Self.fileExists(url(forName: name)) || Self.fileExists(folderURL(named: name)) {
             name = "\(base) \(counter)"
             counter += 1
         }
@@ -189,9 +239,9 @@ public struct TaskLibrary: Sendable {
         try result.get()
     }
 
-    static func validatedName(_ rawName: String) throws -> String {
+    static func validatedName(_ rawName: String, keepingExtension: Bool = false) throws -> String {
         var name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if name.lowercased().hasSuffix("." + fileExtension) {
+        if !keepingExtension, name.lowercased().hasSuffix("." + fileExtension) {
             name = String(name.dropLast(fileExtension.count + 1))
         }
         guard !name.isEmpty, !name.hasPrefix("."), !name.contains("/"), !name.contains(":") else {

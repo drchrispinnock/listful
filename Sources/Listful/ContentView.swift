@@ -68,18 +68,28 @@ struct SidebarView: View {
     @Bindable var library: LibraryModel
 
     var body: some View {
-        List(selection: $library.selection) {
+        List(selection: selection) {
             Section(library.folderURL.lastPathComponent) {
                 ForEach(library.ungroupedLists, id: \.self) { url in
                     Label(library.displayName(of: url), systemImage: "checklist")
                         .sidebarDropTarget(url, library: library)
                         .tag(url)
                 }
+                ForEach(library.subfolders, id: \.url) { group in
+                    FolderGroupView(library: library, group: group)
+                }
             }
             if !library.templates.isEmpty {
                 Section("Repeating") {
                     ForEach(library.templates, id: \.self) { template in
                         RepeatingGroup(library: library, template: template)
+                    }
+                }
+            }
+            if !library.linkedFolders.isEmpty {
+                Section("Other Folders") {
+                    ForEach(library.linkedFolders, id: \.url) { group in
+                        FolderGroupView(library: library, group: group)
                     }
                 }
             }
@@ -94,23 +104,7 @@ struct SidebarView: View {
             }
         }
         .contextMenu(forSelectionType: URL.self) { urls in
-            if let url = urls.first {
-                if library.isLinked(url) {
-                    Button("Show in Finder") { library.revealInFinder(url) }
-                        .disabled(library.missingFiles.contains(url))
-                    Divider()
-                    Button("Remove from Sidebar") { library.unlink(url) }
-                } else {
-                    Button("Rename…") { library.promptRename(url) }
-                    Button("Show in Finder") { library.revealInFinder(url) }
-                    Divider()
-                    Button("Move to Trash…") { library.confirmTrash(url) }
-                }
-            } else {
-                Button("New Task List…") { library.promptNewList() }
-                Button("New Repeating Checklist…") { library.promptNewRepeating() }
-                Button("Add Existing File…") { library.addExistingFiles() }
-            }
+            contextMenu(for: urls.first)
         }
         .onDeleteCommand {
             // Delete never touches a linked file; it only leaves the sidebar.
@@ -126,9 +120,7 @@ struct SidebarView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack {
                 Menu {
-                    Button("New Task List…") { library.promptNewList() }
-                    Button("New Repeating Checklist…") { library.promptNewRepeating() }
-                    Button("Add Existing File…") { library.addExistingFiles() }
+                    addItems
                 } label: {
                     Label("Add", systemImage: "plus")
                         .labelStyle(.iconOnly)
@@ -153,7 +145,7 @@ struct SidebarView: View {
             presenting: library.namePrompt
         ) { prompt in
             TextField("Name", text: $library.nameDraft)
-            Button(prompt == .newList ? "Create" : "Rename") { library.commitNamePrompt(prompt) }
+            Button(isRename(prompt) ? "Rename" : "Create") { library.commitNamePrompt(prompt) }
                 .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) {}
         }
@@ -169,20 +161,97 @@ struct SidebarView: View {
             // Cancel is the default, so Return doesn't confirm by accident.
             Button("Cancel", role: .cancel) {}
                 .keyboardShortcut(.defaultAction)
-        } message: { _ in
-            Text("You can restore it from the Trash in Finder.")
+        } message: { url in
+            if url.hasDirectoryPath {
+                Text("Every task list in the folder goes too. You can restore it from the Trash in Finder.")
+            } else {
+                Text("You can restore it from the Trash in Finder.")
+            }
         }
     }
 
+    /// Clicking a folder's row folds or unfolds it rather than selecting it,
+    /// since only lists can be open.
+    private var selection: Binding<URL?> {
+        Binding(
+            get: { library.selection },
+            set: { url in
+                if let url, url.hasDirectoryPath {
+                    if library.collapsedFolders.remove(url) == nil { library.collapsedFolders.insert(url) }
+                } else {
+                    library.selection = url
+                }
+            })
+    }
+
+    @ViewBuilder private var addItems: some View {
+        Button("New Task List…") { library.promptNewList() }
+        Button("New Repeating Checklist…") { library.promptNewRepeating() }
+        Button("New Folder…") { library.promptNewFolder() }
+        Divider()
+        Button("Add Existing File…") { library.addExistingFiles() }
+        Button("Add Existing Folder…") { library.addExistingFolder() }
+    }
+
+    @ViewBuilder private func contextMenu(for url: URL?) -> some View {
+        if let url, url.hasDirectoryPath {
+            folderMenu(url)
+        } else if let url {
+            listMenu(url)
+        } else {
+            addItems
+        }
+    }
+
+    @ViewBuilder private func listMenu(_ url: URL) -> some View {
+        if library.isLinked(url) {
+            Button("Show in Finder") { library.revealInFinder(url) }
+                .disabled(library.missingFiles.contains(url))
+            Divider()
+            Button("Remove from Sidebar") { library.unlink(url) }
+        } else {
+            Button("Rename…") { library.promptRename(url) }
+            Button("Show in Finder") { library.revealInFinder(url) }
+            Divider()
+            Button("Move to Trash…") { library.confirmTrash(url) }
+        }
+    }
+
+    @ViewBuilder private func folderMenu(_ url: URL) -> some View {
+        let isLinked = library.isLinkedFolder(url)
+        let isMissing = library.linkedFolders.contains { $0.url == url && $0.isMissing }
+        Button("New Task List in Folder…") { library.promptNewList(in: url) }
+            .disabled(isMissing)
+        if !isLinked { Button("Rename…") { library.promptRename(url) } }
+        Button("Show in Finder") { library.revealInFinder(url) }
+            .disabled(isMissing)
+        Divider()
+        if isLinked {
+            Button("Remove from Sidebar") { library.unlinkFolder(url) }
+        } else {
+            Button("Move to Trash…") { library.confirmTrash(url) }
+        }
+    }
+
+    private func isRename(_ prompt: LibraryModel.NamePrompt) -> Bool {
+        if case .rename = prompt { true } else { false }
+    }
+
     private var trashTitle: String {
-        library.pendingTrash.map { "Move “\(library.displayName(of: $0))” to the Trash?" } ?? ""
+        guard let url = library.pendingTrash else { return "" }
+        if url.hasDirectoryPath { return "Move the folder “\(url.lastPathComponent)” to the Trash?" }
+        return "Move “\(library.displayName(of: url))” to the Trash?"
     }
 
     private var namePromptTitle: String {
         switch library.namePrompt {
         case .rename(let url) where library.templates.contains(url): "Rename Repeating Checklist"
+        case .rename(let url) where url.hasDirectoryPath: "Rename Folder"
         case .rename: "Rename Task List"
-        case .newList, nil: "New Task List"
+        case .newFolder: "New Folder"
+        case .newList(let folder):
+            library.folderName(folder).map { "New Task List in “\($0)”" } ?? "New Task List"
+        case nil: "New Task List"
         }
     }
 }
@@ -204,6 +273,60 @@ extension View {
                         .padding(-3)
                 }
             }
+    }
+}
+
+/// A subfolder or linked folder in the sidebar, with its lists beneath it.
+/// Its row is tagged with the folder's URL (trailing slash) for the context
+/// menu; selecting it just folds or unfolds it.
+struct FolderGroupView: View {
+    @Bindable var library: LibraryModel
+    let group: LibraryModel.FolderGroup
+
+    var body: some View {
+        DisclosureGroup(isExpanded: isExpanded) {
+            ForEach(group.lists, id: \.self) { url in
+                Label(library.displayName(of: url), systemImage: "checklist")
+                    .sidebarDropTarget(url, library: library)
+                    .tag(url)
+            }
+            if group.lists.isEmpty {
+                Text(group.isMissing ? "Not found" : "No task lists")
+                    .foregroundStyle(.secondary)
+                    .selectionDisabled()
+            }
+        } label: {
+            Label {
+                if group.isLinked {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(group.name)
+                        Text(group.isMissing ? "Not found" : location)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text(group.name)
+                }
+            } icon: {
+                Image(systemName: group.isMissing ? "questionmark.folder" : "folder")
+            }
+            .tag(group.url)
+            .help(group.url.path(percentEncoded: false))
+        }
+    }
+
+    private var location: String {
+        let parent = group.url.deletingLastPathComponent().path(percentEncoded: false)
+        let home = FileManager.default.homeDirectoryForCurrentUser.path(percentEncoded: false)
+        return parent.hasPrefix(home) ? "~/" + parent.dropFirst(home.count) : parent
+    }
+
+    private var isExpanded: Binding<Bool> {
+        Binding(
+            get: { !library.collapsedFolders.contains(group.url) },
+            set: { expanded in
+                if expanded { library.collapsedFolders.remove(group.url) } else { library.collapsedFolders.insert(group.url) }
+            })
     }
 }
 

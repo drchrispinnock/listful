@@ -4,11 +4,37 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
-## 0.4.1 — 2026-11-14
+## 0.5 — 2026-11-14
+
+- **Folders in the sidebar.**
+  - **Subfolders** of your Task Lists folder now appear in the sidebar as
+    folders you can open and close, each with its lists. Make one with
+    **File › New Folder…** (or the + button), and right-click a folder to
+    add a list to it, rename it, show it in Finder or move it to the
+    Trash (Listful asks first, since its lists go too). New Task List
+    (Cmd-N) puts the new list in the folder of the list you're in.
+  - **Folders from elsewhere**, such as Dropbox or OneDrive, can be added
+    with **File › Add Existing Folder…** (Cmd-Shift-O) or by dragging the
+    folder onto the sidebar. They appear under Other Folders, their lists
+    are edited where they are, and the sidebar keeps up as lists are
+    added or removed there. Right-click one to remove it from the
+    sidebar; the folder itself isn't touched.
+  - Lists in folders work like any other: rename them, trash them, or
+    drag a task onto one to move it there. Only one level of folders is
+    shown.
+- **Sort tasks A–Z.** **Task › Sort A–Z** (Cmd-Option-S) sorts the
+  subtasks of the task you're in, or, for a task without subtasks, that
+  task and the ones alongside it. On a heading it sorts the tasks under
+  it. Numbers sort by value, so "2" comes before "10", and subtasks move
+  with their tasks. Top-level tasks stay between the headings around them.
+- **Heading attributes are hidden.** Markdown files written for Pandoc,
+  kramdown and the like can end a heading with an attribute block, as in
+  `## Setup {#setup}`. Listful now shows just "Setup", and keeps the
+  `{#setup}` in the file, after the heading's new text if you rename it.
 
 Groundwork for an iPhone and iPad version, which will read and write the
-same Task Lists folder in iCloud Drive. This release makes Listful handle
-iCloud files properly:
+same Task Lists folder in iCloud Drive. Listful now handles iCloud files
+properly:
 
 - **Lists that aren't downloaded yet open without freezing.** With
   "Optimize Mac Storage" on, or straight after another Mac changes a

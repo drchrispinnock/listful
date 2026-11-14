@@ -8,14 +8,30 @@ import UniformTypeIdentifiers
 @MainActor @Observable
 final class LibraryModel {
     enum NamePrompt: Equatable {
-        case newList
+        /// A new list in this folder.
+        case newList(URL)
+        case newFolder
+        /// A list, or a subfolder (a URL with a trailing slash).
         case rename(URL)
+    }
+
+    /// A folder of lists shown as a group in the sidebar: a subfolder of
+    /// the lists folder, or a linked folder from anywhere else.
+    struct FolderGroup: Equatable {
+        /// With a trailing slash, as everywhere a folder is selected or keyed.
+        let url: URL
+        var lists: [URL]
+        let isLinked: Bool
+        var isMissing = false
+        var name: String { url.lastPathComponent }
+        var library: TaskLibrary { TaskLibrary(folderURL: url) }
     }
 
     private enum Keys {
         static let folder = "libraryFolder"
         static let selectedList = "selectedList"
         static let linkedFiles = "linkedFiles"
+        static let linkedFolders = "linkedFolders"
     }
 
     /// Extensions accepted when adding files from elsewhere.
@@ -34,6 +50,13 @@ final class LibraryModel {
     private(set) var linkedFiles: [URL] = []
     /// Linked files that no longer exist at their saved path.
     private(set) var missingFiles: Set<URL> = []
+    /// Subfolders of the lists folder, one level down.
+    private(set) var subfolders: [FolderGroup] = []
+    /// Folders outside the lists folder (e.g. in Dropbox), shown with their
+    /// lists, which are edited in place. Persisted as paths.
+    private(set) var linkedFolders: [FolderGroup] = []
+    /// Sidebar folder groups the user has folded away.
+    var collapsedFolders: Set<URL> = []
     /// `#` titles read from list files that have one.
     private(set) var titles: [URL: String] = [:]
     /// Lists with nothing left to do; earlier repeating copies like these
@@ -70,6 +93,8 @@ final class LibraryModel {
     @ObservationIgnored private var library: TaskLibrary
     @ObservationIgnored private var templateLibrary: TaskLibrary
     @ObservationIgnored private var folderWatchers: [DispatchSourceFileSystemObject] = []
+    @ObservationIgnored private var watchedFolders: [URL] = []
+    @ObservationIgnored private var linkedFolderURLs: [URL] = []
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?
     @ObservationIgnored private var activationObserver: NSObjectProtocol?
     @ObservationIgnored private var titlesTask: Task<Void, Never>?
@@ -86,6 +111,8 @@ final class LibraryModel {
         templateLibrary = TaskLibrary(folderURL: library.templatesFolderURL)
         linkedFiles = (UserDefaults.standard.stringArray(forKey: Keys.linkedFiles) ?? [])
             .map { URL(filePath: $0) }
+        linkedFolderURLs = (UserDefaults.standard.stringArray(forKey: Keys.linkedFolders) ?? [])
+            .map { URL(filePath: $0, directoryHint: .isDirectory) }
         loadFolder(restoring: UserDefaults.standard.string(forKey: Keys.selectedList))
 
         terminationObserver = NotificationCenter.default.addObserver(
@@ -159,14 +186,25 @@ final class LibraryModel {
         } catch {
             errorMessage = "Couldn't create \(folderURL.path(percentEncoded: false)): \(error.localizedDescription)"
         }
-        // A linked file that's now inside the folder is listed there instead.
-        setLinkedFiles(linkedFiles.filter { !library.contains($0) })
+        // A linked folder that's now the lists folder or inside it is shown there instead.
+        setLinkedFolders(linkedFolderURLs)
         refreshLists()
-        watchFolder()
-        // The saved selection is a file name for folder lists, a full path for linked files.
+        // The saved selection is a path relative to the folder for lists inside it, else a full path.
         let restored = selectedName.map { $0.hasPrefix("/") ? URL(filePath: $0) : folderURL.appending(path: $0) }
-        selection = (lists + templates + linkedFiles).first { $0 == restored } ?? lists.first
+        selection = allLists.first { $0.path == restored?.path } ?? lists.first
         makeDueCopies()
+    }
+
+    /// Every list in the sidebar: the folder's, templates, those in folder
+    /// groups, and linked files.
+    var allLists: [URL] {
+        lists + templates + (subfolders + linkedFolders).flatMap(\.lists) + linkedFiles
+    }
+
+    /// The folders whose lists are shown, each as the `TaskLibrary` its
+    /// lists' URLs come from.
+    private var libraries: [TaskLibrary] {
+        [library, templateLibrary] + (subfolders + linkedFolders).map(\.library)
     }
 
     /// Re-reads the folder and re-checks linked files, keeping the selection
@@ -176,8 +214,20 @@ final class LibraryModel {
         if current != lists { lists = current }
         let currentTemplates = (try? templateLibrary.lists()) ?? []
         if currentTemplates != templates { templates = currentTemplates }
+        let currentSubfolders = ((try? library.subfolders()) ?? []).map { url in
+            FolderGroup(url: url, lists: (try? TaskLibrary(folderURL: url).lists()) ?? [], isLinked: false)
+        }
+        if currentSubfolders != subfolders { subfolders = currentSubfolders }
+        let currentLinkedFolders = linkedFolderURLs.map { url in
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+            return FolderGroup(url: url, lists: exists ? (try? TaskLibrary(folderURL: url).lists()) ?? [] : [],
+                               isLinked: true, isMissing: !exists)
+        }
+        if currentLinkedFolders != linkedFolders { linkedFolders = currentLinkedFolders }
         let missing = Set(linkedFiles.filter { !TaskLibrary.fileExists($0) })
         if missing != missingFiles { missingFiles = missing }
+        watchFolders()
         refreshTitles()
 
         guard let selection else { return }
@@ -185,7 +235,7 @@ final class LibraryModel {
             // Keep it selected so the detail pane can say what happened, but
             // don't save: that would recreate the file where it used to be.
             if document != nil { dropDocument(saving: false) }
-        } else if !current.contains(selection) && !currentTemplates.contains(selection) && !linkedFiles.contains(selection) {
+        } else if !allLists.contains(selection) {
             // Saving won't recreate it; unsaved edits are kept in a copy.
             dropDocument(saving: true)
             self.selection = nil
@@ -195,11 +245,16 @@ final class LibraryModel {
         }
     }
 
-    /// Refreshes the sidebar when files are added, removed or renamed in the
-    /// folder or its Templates subfolder by anything, including Finder.
-    private func watchFolder() {
+    /// Refreshes the sidebar when files are added, removed or renamed by
+    /// anything, including Finder, in the folder, its Templates and other
+    /// subfolders, or a linked folder. Re-watches only when that set changes.
+    private func watchFolders() {
+        let folders = [folderURL, templateLibrary.folderURL]
+            + (subfolders + linkedFolders).filter { !$0.isMissing }.map(\.url)
+        guard folders != watchedFolders else { return }
+        watchedFolders = folders
         folderWatchers.forEach { $0.cancel() }
-        folderWatchers = [folderURL, templateLibrary.folderURL].compactMap { url in
+        folderWatchers = folders.compactMap { url in
             let fd = open(url.path, O_EVTONLY)
             guard fd >= 0 else { return nil }
             let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
@@ -217,7 +272,7 @@ final class LibraryModel {
     /// file, so it's done off the main thread; a newer refresh supersedes
     /// one still running.
     private func refreshTitles() {
-        let urls = (lists + templates + linkedFiles).filter { !missingFiles.contains($0) }
+        let urls = allLists.filter { !missingFiles.contains($0) }
         titlesTask?.cancel()
         titlesTask = Task {
             let (current, finished) = await Task.detached { Self.readTitles(of: urls) }.value
@@ -298,8 +353,9 @@ final class LibraryModel {
             guard let self else { return [:] }
             return sidebarFrames.filter { !missingFiles.contains($0.key) }
         }
-        let isLinked = linkedFiles.contains(selection)
-        UserDefaults.standard.set(isLinked ? selection.path : selection.lastPathComponent, forKey: Keys.selectedList)
+        let folderPath = folderURL.path.hasSuffix("/") ? folderURL.path : folderURL.path + "/"
+        let saved = selection.path.hasPrefix(folderPath) ? String(selection.path.dropFirst(folderPath.count)) : selection.path
+        UserDefaults.standard.set(saved, forKey: Keys.selectedList)
     }
 
     /// Saves and drops the open document, so that nothing can write to its
@@ -337,10 +393,17 @@ final class LibraryModel {
     func link(_ urls: [URL]) -> Bool {
         var toSelect: URL?
         var added = linkedFiles
-        for url in urls where url.isFileURL && !url.hasDirectoryPath {
+        var linkedAFolder = false
+        for url in urls where url.isFileURL {
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                linkFolder(url)
+                linkedAFolder = true
+                continue
+            }
             let url = url.standardizedFileURL
             guard Self.linkableExtensions.contains(url.pathExtension.lowercased()) else { continue }
-            if let owner = [library, templateLibrary].first(where: { $0.contains(url) }) {
+            if let owner = libraries.first(where: { $0.contains(url) }) {
                 toSelect = owner.canonicalURL(for: url)
                 continue
             }
@@ -350,7 +413,67 @@ final class LibraryModel {
         setLinkedFiles(added)
         refreshLists()
         if let toSelect { selection = toSelect }
-        return toSelect != nil
+        return toSelect != nil || linkedAFolder
+    }
+
+    func addExistingFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Add"
+        panel.message = "Choose a folder of task lists to show in the sidebar, such as one in Dropbox or OneDrive. "
+            + "Its lists stay where they are and are edited in place."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        linkFolder(url)
+    }
+
+    /// Shows a folder from elsewhere in the sidebar. The lists folder, its
+    /// subfolders and folders already linked are just expanded.
+    func linkFolder(_ url: URL) {
+        let url = URL(filePath: url.standardizedFileURL.path, directoryHint: .isDirectory)
+        let real = { (u: URL) in u.resolvingSymlinksInPath().standardizedFileURL.path }
+        let mainFolder = real(folderURL)
+        if real(url) == mainFolder { return }
+        if let shown = (subfolders + linkedFolders).first(where: { real($0.url) == real(url) }) {
+            collapsedFolders.remove(shown.url)
+            return
+        }
+        if real(url.deletingLastPathComponent()) == mainFolder {
+            return  // A subfolder, already shown (Templates is shown as Repeating).
+        }
+        setLinkedFolders(linkedFolderURLs + [url])
+        refreshLists()
+        collapsedFolders.remove(url)
+    }
+
+    func isLinkedFolder(_ url: URL) -> Bool {
+        linkedFolderURLs.contains(url)
+    }
+
+    /// Removes a linked folder from the sidebar. The folder is untouched.
+    func unlinkFolder(_ url: URL) {
+        let wasInside = selection.map { $0.deletingLastPathComponent().path == url.path } ?? false
+        if wasInside { closeDocument() }
+        setLinkedFolders(linkedFolderURLs.filter { $0 != url })
+        refreshLists()
+        if wasInside { selection = lists.first }
+    }
+
+    private func setLinkedFolders(_ urls: [URL]) {
+        let real = { (u: URL) in u.resolvingSymlinksInPath().standardizedFileURL.path }
+        let mainFolder = real(folderURL)
+        var seen = Set<String>()
+        let kept = urls.filter { url in
+            let path = real(url)
+            return path != mainFolder && real(url.deletingLastPathComponent()) != mainFolder && seen.insert(path).inserted
+        }
+        let sorted = kept.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        linkedFolderURLs = sorted
+        UserDefaults.standard.set(sorted.map(\.path), forKey: Keys.linkedFolders)
+        // A linked file that's in a shown folder is listed there instead.
+        let shown = Set([mainFolder] + sorted.map(real))
+        setLinkedFiles(linkedFiles.filter { !shown.contains(real($0.deletingLastPathComponent())) })
     }
 
     /// Points a missing linked file's sidebar entry at its new location.
@@ -387,25 +510,59 @@ final class LibraryModel {
 
     // MARK: - Creating, renaming, trashing
 
-    func promptNewList() {
-        nameDraft = library.suggestedNewName()
-        namePrompt = .newList
+    /// Asks for a new list's name. It goes in `folder` if given, else in the
+    /// folder group the open list is in, else the lists folder.
+    func promptNewList(in folder: URL? = nil) {
+        let target = folder ?? selection.flatMap(folderGroup(containing:))?.url ?? folderURL
+        nameDraft = TaskLibrary(folderURL: target).suggestedNewName()
+        namePrompt = .newList(target)
+    }
+
+    func promptNewFolder() {
+        nameDraft = library.suggestedNewName(base: "New Folder")
+        namePrompt = .newFolder
     }
 
     func promptRename(_ url: URL) {
-        nameDraft = displayName(of: url)
+        nameDraft = url.hasDirectoryPath ? url.lastPathComponent : displayName(of: url)
         namePrompt = .rename(url)
+    }
+
+    /// The subfolder or linked folder whose lists include `url`.
+    func folderGroup(containing url: URL) -> FolderGroup? {
+        (subfolders + linkedFolders).first { $0.lists.contains(url) }
+    }
+
+    /// The name of a folder new lists can go in, for prompts; nil for the lists folder.
+    func folderName(_ url: URL) -> String? {
+        url.path == folderURL.path || url.path == folderURL.path + "/" ? nil : url.lastPathComponent
     }
 
     func commitNamePrompt(_ prompt: NamePrompt) {
         namePrompt = nil
         do {
             switch prompt {
-            case .newList:
-                let url = try library.createList(named: nameDraft)
+            case .newList(let folder):
+                let owner = libraries.first { $0.folderURL.path == folder.path } ?? TaskLibrary(folderURL: folder)
+                let url = try owner.createList(named: nameDraft)
+                collapsedFolders.remove(folder)
                 refreshLists()
                 selection = url
                 document?.focusFirstRow()
+            case .newFolder:
+                let url = try library.createFolder(named: nameDraft)
+                refreshLists()
+                collapsedFolders.remove(url)
+            case .rename(let url) where url.hasDirectoryPath:
+                let selectedName = selection.flatMap { $0.deletingLastPathComponent().path == url.path ? $0.lastPathComponent : nil }
+                if selectedName != nil { closeDocument() }
+                let renamed = try library.renameFolder(at: url, to: nameDraft)
+                if collapsedFolders.remove(url) != nil { collapsedFolders.insert(renamed) }
+                refreshLists()
+                if let selectedName {
+                    selection = nil
+                    selection = subfolders.first { $0.url == renamed }?.lists.first { $0.lastPathComponent == selectedName }
+                }
             case .rename(let url):
                 let wasSelected = selection == url
                 if wasSelected { closeDocument() }
@@ -445,6 +602,10 @@ final class LibraryModel {
     }
 
     func trash(_ url: URL) {
+        if url.hasDirectoryPath {
+            trashFolder(url)
+            return
+        }
         let wasSelected = selection == url
         let neighbour = wasSelected ? neighbourInList(of: url) : nil
         if wasSelected { closeDocument() }
@@ -454,19 +615,32 @@ final class LibraryModel {
             errorMessage = "Couldn't move \(url.lastPathComponent) to the Trash: \(error.localizedDescription)"
         }
         refreshLists()
-        if wasSelected { selection = neighbour.flatMap { lists.contains($0) ? $0 : nil } ?? lists.first }
+        if wasSelected { selection = neighbour.flatMap { allLists.contains($0) ? $0 : nil } ?? lists.first }
+    }
+
+    private func trashFolder(_ url: URL) {
+        let wasInside = selection.map { $0.deletingLastPathComponent().path == url.path } ?? false
+        if wasInside { closeDocument() }
+        do {
+            try library.trashFolder(at: url)
+        } catch {
+            errorMessage = "Couldn't move \(url.lastPathComponent) to the Trash: \(error.localizedDescription)"
+        }
+        refreshLists()
+        if wasInside { selection = lists.first }
     }
 
     private func neighbourInList(of url: URL) -> URL? {
-        let siblings = templates.contains(url) ? templates : lists
+        let siblings = templates.contains(url) ? templates : folderGroup(containing: url)?.lists ?? lists
         guard let i = siblings.firstIndex(of: url) else { return nil }
         if i + 1 < siblings.count { return siblings[i + 1] }
         return i > 0 ? siblings[i - 1] : nil
     }
 
-    /// The folder a list belongs to: the lists folder or the templates one.
+    /// The folder a list belongs to, as the `TaskLibrary` its URL came from.
     private func owner(of url: URL) -> TaskLibrary {
-        templates.contains(url) ? templateLibrary : library
+        if templates.contains(url) { return templateLibrary }
+        return folderGroup(containing: url)?.library ?? library
     }
 
     // MARK: - Repeating checklists
@@ -485,7 +659,7 @@ final class LibraryModel {
             let name = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
             try templateLibrary.ensureFolderExists()
             let url = try templateLibrary.createList(named: name, contents: Outline(title: name, schedule: scheduleDraft))
-            watchFolder()
+            watchedFolders = []  // Templates may be new, so watch it afresh.
             refreshLists()
             selection = url
             document?.focusFirstRow()

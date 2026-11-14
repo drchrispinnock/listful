@@ -43,8 +43,11 @@ struct ListfulApp: App {
                 .keyboardShortcut("n")
             Button("New Repeating Checklist…") { library.promptNewRepeating() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("New Folder…") { library.promptNewFolder() }
             Button("Add Existing File…") { library.addExistingFiles() }
                 .keyboardShortcut("o")
+            Button("Add Existing Folder…") { library.addExistingFolder() }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
             Button("Reload from Disk") { library.document?.reload() }
                 .keyboardShortcut("r")
         }
