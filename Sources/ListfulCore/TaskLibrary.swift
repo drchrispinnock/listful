@@ -40,7 +40,7 @@ public struct TaskLibrary: Sendable {
         let folder = url.deletingLastPathComponent()
         var name = base
         var counter = 2
-        while FileManager.default.fileExists(atPath: folder.appending(path: name + "." + fileExtension).path) {
+        while fileExists(folder.appending(path: name + "." + fileExtension)) {
             name = "\(base) \(counter)"
             counter += 1
         }
@@ -76,20 +76,52 @@ public struct TaskLibrary: Sendable {
 
     /// The `.md` files in the folder, sorted by name the way Finder does.
     /// URLs are rebuilt from `folderURL` so they compare equal to ones from
-    /// `url(forName:)`.
+    /// `url(forName:)`. A file iCloud hasn't downloaded yet counts, under its
+    /// real name, even where only its placeholder is on disk.
     public func lists() throws -> [URL] {
-        try FileManager.default
-            .contentsOfDirectory(at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
-            .filter { $0.pathExtension.lowercased() == Self.fileExtension && !$0.hasDirectoryPath }
-            .map { folderURL.appending(path: $0.lastPathComponent) }
+        var names = Set<String>()
+        for url in try FileManager.default.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: nil) {
+            guard !url.hasDirectoryPath else { continue }
+            let name = Self.realName(ofPlaceholder: url.lastPathComponent) ?? url.lastPathComponent
+            guard !name.hasPrefix("."), (name as NSString).pathExtension.lowercased() == Self.fileExtension else { continue }
+            names.insert(name)
+        }
+        return names
+            .map { folderURL.appending(path: $0) }
             .sorted { Self.displayName(of: $0).localizedStandardCompare(Self.displayName(of: $1)) == .orderedAscending }
+    }
+
+    // MARK: - iCloud placeholders
+
+    /// Where iCloud keeps the stand-in for `url` while the file itself isn't
+    /// on this device: `.Name.md.icloud` beside it. (iOS does this; macOS 14+
+    /// keeps "dataless" files under their real names instead.)
+    public static func placeholderURL(for url: URL) -> URL {
+        url.deletingLastPathComponent().appending(path: "." + url.lastPathComponent + ".icloud")
+    }
+
+    /// The file name a placeholder stands in for, or nil if `name` isn't one.
+    public static func realName(ofPlaceholder name: String) -> String? {
+        guard name.hasPrefix("."), name.hasSuffix(".icloud") else { return nil }
+        let real = String(name.dropFirst().dropLast(".icloud".count))
+        return real.isEmpty ? nil : real
+    }
+
+    public static func placeholderExists(for url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: placeholderURL(for: url).path)
+    }
+
+    /// Whether a file is at `url`, downloaded or not. Use this rather than
+    /// `FileManager.fileExists` before claiming a name.
+    public static func fileExists(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path) || placeholderExists(for: url)
     }
 
     /// "Untitled", or "Untitled 2", "Untitled 3"… if taken.
     public func suggestedNewName(base: String = "Untitled") -> String {
         var name = base
         var counter = 2
-        while FileManager.default.fileExists(atPath: url(forName: name).path) {
+        while Self.fileExists(url(forName: name)) {
             name = "\(base) \(counter)"
             counter += 1
         }
@@ -100,7 +132,7 @@ public struct TaskLibrary: Sendable {
     public func createList(named rawName: String, contents: Outline = Outline()) throws -> URL {
         let name = try Self.validatedName(rawName)
         let url = url(forName: name)
-        guard !FileManager.default.fileExists(atPath: url.path) else {
+        guard !Self.fileExists(url) else {
             throw TaskLibraryError.alreadyExists(name)
         }
         try ensureFolderExists()
@@ -115,15 +147,46 @@ public struct TaskLibrary: Sendable {
         // Allow case-only renames, which the case-insensitive filesystem
         // would otherwise report as a clash with the file itself.
         let isCaseChange = destination.path.lowercased() == url.path.lowercased()
-        if !isCaseChange && FileManager.default.fileExists(atPath: destination.path) {
+        if !isCaseChange && Self.fileExists(destination) {
             throw TaskLibraryError.alreadyExists(name)
         }
-        try FileManager.default.moveItem(at: url, to: destination)
+        try Self.move(url, to: destination)
         return destination
     }
 
     public func trashList(at url: URL) throws {
-        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        // A list not yet downloaded is trashed as its placeholder.
+        let target = FileManager.default.fileExists(atPath: url.path) || !Self.placeholderExists(for: url)
+            ? url : Self.placeholderURL(for: url)
+        var result: Result<Void, Error> = .success(())
+        var coordinationError: NSError?
+        NSFileCoordinator(filePresenter: nil)
+            .coordinate(writingItemAt: target, options: .forDeleting, error: &coordinationError) { url in
+                result = Result { try FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+            }
+        if let coordinationError { throw coordinationError }
+        try result.get()
+    }
+
+    /// Moves a file with coordination, so iCloud sees a rename rather than a
+    /// delete and a new file.
+    static func move(_ source: URL, to destination: URL) throws {
+        var result: Result<Void, Error> = .success(())
+        var coordinationError: NSError?
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(
+            writingItemAt: source, options: .forMoving,
+            writingItemAt: destination, options: .forReplacing,
+            error: &coordinationError
+        ) { from, to in
+            result = Result {
+                coordinator.item(at: from, willMoveTo: to)
+                try FileManager.default.moveItem(at: from, to: to)
+                coordinator.item(at: from, didMoveTo: to)
+            }
+        }
+        if let coordinationError { throw coordinationError }
+        try result.get()
     }
 
     static func validatedName(_ rawName: String) throws -> String {

@@ -10,7 +10,21 @@ struct ContentView: View {
             SidebarView(library: library)
                 .navigationSplitViewColumnWidth(min: 160, ideal: 200, max: 320)
         } detail: {
-            if let document = library.document {
+            if let document = library.document, document.loadState == .downloading {
+                ContentUnavailableView {
+                    Label("Downloading from iCloud…", systemImage: "icloud.and.arrow.down")
+                } description: {
+                    Text("“\(document.fileName)” will open once it's on this Mac.")
+                }
+            } else if let document = library.document, case .failed(let message) = document.loadState {
+                ContentUnavailableView {
+                    Label("Can't Open Task List", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                } actions: {
+                    Button("Try Again") { document.reload() }
+                }
+            } else if let document = library.document {
                 OutlineView(document: document)
                     // Fresh row views per list, so no text field state leaks between lists.
                     .id(ObjectIdentifier(document))

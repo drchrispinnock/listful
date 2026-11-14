@@ -22,6 +22,17 @@ final class TaskDocument {
     private(set) var showsListTitle = false
     var errorMessage: String?
 
+    enum LoadState: Equatable {
+        case loaded
+        /// Waiting for iCloud to bring the file to this Mac.
+        case downloading
+        /// The file couldn't be read; nothing is saved until it can be.
+        case failed(String)
+    }
+    /// Until this is `.loaded` the outline isn't the file's, so it's neither
+    /// shown nor saved: saving it would replace the list with an empty one.
+    private(set) var loadState = LoadState.loaded
+
     @ObservationIgnored private let store: MarkdownFileStore
     @ObservationIgnored private var pendingSave: Task<Void, Never>?
     /// The file's text as last read or written here. If the file no longer
@@ -29,6 +40,7 @@ final class TaskDocument {
     /// has changed it.
     @ObservationIgnored private var syncedText: String?
     @ObservationIgnored private var watcher: FileWatcher?
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
 
     init(fileURL: URL, options: ViewOptions) {
         self.fileURL = fileURL
@@ -564,14 +576,39 @@ final class TaskDocument {
         load()
     }
 
+    /// Reads the file, straight away if it's on this Mac. One that's only in
+    /// iCloud is read off the main thread, since the read waits for the
+    /// download; meanwhile the list shows as downloading.
     private func load() {
-        do {
-            let text = try store.readText()
+        loadTask?.cancel()
+        loadTask = nil
+        guard store.needsDownload else {
+            finishLoading(Result { try store.readText() })
+            return
+        }
+        loadState = .downloading
+        let store = store
+        loadTask = Task {
+            let result = await Task.detached { Result { try store.readText() } }.value
+            guard !Task.isCancelled else { return }
+            loadTask = nil
+            finishLoading(result)
+        }
+    }
+
+    private func finishLoading(_ result: Result<String?, Error>) {
+        switch result {
+        case .success(let text):
             syncedText = text
             outline = text.map(MarkdownCodec.decode) ?? Outline()
-        } catch {
-            errorMessage = "Couldn't read \(fileURL.lastPathComponent): \(error.localizedDescription)"
+            loadState = .loaded
+        case .failure(MarkdownFileStoreError.notDownloaded):
+            // Only a placeholder so far; the watcher retries once it arrives.
             outline = Outline()
+            loadState = .downloading
+        case .failure(let error):
+            outline = Outline()
+            loadState = .failed("Couldn't read “\(fileURL.lastPathComponent)”: \(error.localizedDescription)")
         }
         // Always offer a row to type into; it isn't written until edited.
         if outline.isEmpty { outline.appendItem() }
@@ -586,6 +623,10 @@ final class TaskDocument {
     /// The file is read off the main thread, since iCloud can stall a read
     /// for seconds; if this Mac saved meanwhile, the read is stale and dropped.
     func checkDisk() {
+        guard loadState == .loaded else {
+            if loadTask == nil { load() }
+            return
+        }
         let store = store
         let before = syncedText
         Task {
@@ -616,6 +657,7 @@ final class TaskDocument {
     }
 
     private func scheduleSave() {
+        guard loadState == .loaded else { return }
         pendingSave?.cancel()
         pendingSave = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))

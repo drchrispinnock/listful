@@ -176,7 +176,7 @@ final class LibraryModel {
         if current != lists { lists = current }
         let currentTemplates = (try? templateLibrary.lists()) ?? []
         if currentTemplates != templates { templates = currentTemplates }
-        let missing = Set(linkedFiles.filter { !FileManager.default.fileExists(atPath: $0.path) })
+        let missing = Set(linkedFiles.filter { !TaskLibrary.fileExists($0) })
         if missing != missingFiles { missingFiles = missing }
         refreshTitles()
 
@@ -231,7 +231,7 @@ final class LibraryModel {
         var titles: [URL: String] = [:]
         var finished: Set<URL> = []
         for url in urls {
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            guard let text = try? MarkdownFileStore(fileURL: url).readText() else { continue }
             let outline = MarkdownCodec.decode(text)
             if !RepeatingChecklists.hasOpenTasks(outline) { finished.insert(url) }
             if let title = outline.title?.trimmingCharacters(in: .whitespaces), !title.isEmpty {

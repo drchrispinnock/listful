@@ -4,6 +4,32 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
+## 0.4.1 — 2026-11-14
+
+Groundwork for an iPhone and iPad version, which will read and write the
+same Task Lists folder in iCloud Drive. This release makes Listful handle
+iCloud files properly:
+
+- **Lists that aren't downloaded yet open without freezing.** With
+  "Optimize Mac Storage" on, or straight after another Mac changes a
+  list, iCloud may not have the file's contents on this Mac yet. Opening
+  such a list used to freeze the window while it downloaded. It now
+  shows "Downloading from iCloud…" and opens once the file arrives.
+- **A list that can't be read is never saved over.** If a list couldn't
+  be read (offline, say, before iCloud had downloaded it), Listful used
+  to show it as empty, and typing into it could replace the file with
+  the empty list. It now says it can't open the list, offers Try Again,
+  and saves nothing until the file has been read.
+- **Plays by iCloud's rules for reading and writing files.** Listful now
+  reads, saves, renames and trashes lists the way Apple asks apps to for
+  iCloud Drive files, so iCloud knows a file is being changed and treats
+  a rename as a rename rather than a new file.
+- **Lists stored only in iCloud still count.** On iPhone and iPad (and
+  older Macs), iCloud keeps a file it hasn't downloaded as a hidden
+  stand-in. Listful now lists such files under their real names, starts
+  downloading them when opened, and won't create a new list with the same
+  name.
+
 ## 0.4 — 2026-11-06
 
 - **Select several tasks.** Shift-Up or Shift-Down while editing a task
