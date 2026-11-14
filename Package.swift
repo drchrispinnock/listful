@@ -3,9 +3,11 @@ import PackageDescription
 
 let package = Package(
     name: "Listful",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .executable(name: "Listful", targets: ["Listful"]),
+        // Shared with the iOS app (iOS/), which uses it as a local package.
+        .library(name: "ListfulCore", targets: ["ListfulCore"]),
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.6"),

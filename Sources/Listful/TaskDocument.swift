@@ -694,50 +694,24 @@ final class TaskDocument {
         pendingSave = nil
         let mine = MarkdownCodec.encode(outline)
         do {
-            guard let disk = try store.readText() else {
-                if let syncedText {
-                    // The file was here and has gone: renamed or moved to the
-                    // Trash, perhaps on another Mac. Writing it would bring it
-                    // back under its old name, so unsaved edits go in a copy.
-                    if mine != syncedText { keepAsCopy(mine, because: "was renamed or deleted somewhere else") }
-                    return
-                }
-                try store.writeText(mine)
-                syncedText = mine
-                return
-            }
-            guard disk != syncedText else {
-                try store.writeText(mine)
-                syncedText = mine
-                return
-            }
-            switch TextMerge.merge(base: syncedText ?? "", mine: mine, theirs: disk) {
+            switch try FileSync.save(mine, to: store, synced: syncedText) {
+            case .saved(let text):
+                syncedText = text
             case .merged(let text):
-                if text != disk { try store.writeText(text) }
                 adopt(text)
-            case .conflict:
-                let copy = TaskLibrary.conflictCopyURL(for: fileURL)
-                try MarkdownFileStore(fileURL: copy).writeText(mine)
+            case .conflict(let disk, let copy):
                 adopt(disk)
                 errorMessage = "“\(fileName)” was changed somewhere else while you were editing it here, "
                     + "and the changes clash. It now shows the other version; yours is saved beside it "
                     + "as “\(TaskLibrary.displayName(of: copy))”."
+            case .gone(let copy):
+                if let copy {
+                    errorMessage = "“\(fileName)” was renamed or deleted somewhere else while you were editing it here. "
+                        + "Your latest changes are saved as “\(TaskLibrary.displayName(of: copy))”."
+                }
             }
         } catch {
             errorMessage = "Couldn't save \(fileURL.lastPathComponent): \(error.localizedDescription)"
-        }
-    }
-
-    /// Writes `text` beside the file as a conflict copy, and says why.
-    private func keepAsCopy(_ text: String, because reason: String) {
-        let copy = TaskLibrary.conflictCopyURL(for: fileURL)
-        do {
-            try MarkdownFileStore(fileURL: copy).writeText(text)
-            errorMessage = "“\(fileName)” \(reason) while you were editing it here. "
-                + "Your latest changes are saved as “\(TaskLibrary.displayName(of: copy))”."
-        } catch {
-            errorMessage = "“\(fileName)” \(reason), and your latest changes couldn't be saved: "
-                + error.localizedDescription
         }
     }
 }
