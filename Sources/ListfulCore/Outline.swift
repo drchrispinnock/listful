@@ -264,6 +264,62 @@ public struct Outline: Equatable, Sendable {
         return destination
     }
 
+    /// The tasks a Sort on the item at `index` reorders: a task's subtasks if
+    /// it has any; otherwise the task and its siblings (for a top-level task,
+    /// those between the headings either side of it); for a heading, the
+    /// tasks under it up to the next heading. Nil if that's fewer than two.
+    public func sortRange(for index: Int) -> Range<Int>? {
+        let range: Range<Int>
+        if items[index].isHeading {
+            range = (index + 1)..<nextHeading(after: index)
+        } else if hasChildren(index) {
+            range = (index + 1)..<subtreeEnd(index)
+        } else if let parent = parentIndex(index) {
+            range = (parent + 1)..<subtreeEnd(parent)
+        } else {
+            let start = items[..<index].lastIndex(where: \.isHeading).map { $0 + 1 } ?? 0
+            range = start..<nextHeading(after: index)
+        }
+        guard let first = range.first else { return nil }
+        let depth = items[first].depth
+        return range.filter({ items[$0].depth == depth }).count > 1 ? range : nil
+    }
+
+    private func nextHeading(after index: Int) -> Int {
+        items[(index + 1)...].firstIndex(where: \.isHeading) ?? items.count
+    }
+
+    /// Sorts the tasks `sortRange(for:)` picks by title, A–Z the way Finder
+    /// does (ignoring case, numbers by value, so "2" comes before "10").
+    /// Each task keeps its subtasks; untitled tasks go last. Returns whether
+    /// the order changed.
+    @discardableResult
+    public mutating func sortTasks(for index: Int) -> Bool {
+        guard let range = sortRange(for: index) else { return false }
+        let depth = items[range.lowerBound].depth
+        var blocks: [ArraySlice<TaskItem>] = []
+        var start = range.lowerBound
+        for i in range.dropFirst() where items[i].depth == depth {
+            blocks.append(items[start..<i])
+            start = i
+        }
+        blocks.append(items[start..<range.upperBound])
+        // Stable, so equal titles keep their order.
+        let sorted = blocks.enumerated().sorted { a, b in
+            let x = a.element.first!.title, y = b.element.first!.title
+            if x.isEmpty != y.isEmpty { return y.isEmpty }
+            switch x.localizedStandardCompare(y) {
+            case .orderedAscending: return true
+            case .orderedDescending: return false
+            case .orderedSame: return a.offset < b.offset
+            }
+        }.map(\.element)
+        let reordered = Array(sorted.joined())
+        guard reordered.map(\.id) != items[range].map(\.id) else { return false }
+        items.replaceSubrange(range, with: reordered)
+        return true
+    }
+
     /// Swaps the item's subtree with its previous sibling's. Returns the new index.
     /// A top-level task can swap with a heading, moving it into the section
     /// above. Headings themselves don't move this way.

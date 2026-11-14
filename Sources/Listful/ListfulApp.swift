@@ -67,6 +67,8 @@ struct ListfulApp: App {
                 .keyboardShortcut(.upArrow, modifiers: [.command, .shift])
             Button("Move Down") { onFocused { $0.moveDown($1) } }
                 .keyboardShortcut(.downArrow, modifiers: [.command, .shift])
+            Button("Sort A–Z") { onFocused { $0.sort($1) } }
+                .keyboardShortcut("s", modifiers: [.command, .option])
             Divider()
             Button("Heading 1") { onFocused { $0.makeHeading(1, for: $1) } }
                 .keyboardShortcut("1", modifiers: [.command, .option])
