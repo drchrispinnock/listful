@@ -172,14 +172,16 @@ final class TaskDocument {
         requestFocus(id)
     }
 
-    /// Sorts A–Z the task's subtasks, or the task and its siblings (see
-    /// `Outline.sortRange`). Collapsed rows stay collapsed.
-    func sort(_ id: UUID) {
-        guard let i = outline.index(of: id), outline.sortRange(for: i) != nil else { return }
+    /// Sorts A–Z the task and its siblings, or a heading's tasks (see
+    /// `Outline.sortRange`); with no task given, the top level. Collapsed
+    /// rows stay collapsed.
+    func sort(_ id: UUID?) {
+        guard !outline.isEmpty else { return }
+        let i = id.flatMap(outline.index(of:)) ?? 0
         var sorted = outline
         guard sorted.sortTasks(for: i) else { return }
         mutate { $0 = sorted }
-        requestFocus(id)
+        if let id { requestFocus(id) }
     }
 
     func toggleDone(_ id: UUID) {

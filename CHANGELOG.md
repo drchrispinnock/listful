@@ -22,10 +22,11 @@ version that has no section here.
   - Lists in folders work like any other: rename them, trash them, or
     drag a task onto one to move it there. Only one level of folders is
     shown.
-- **Sort tasks A–Z.** **Task › Sort A–Z** (Cmd-Option-S) sorts the
-  subtasks of the task you're in, or, for a task without subtasks, that
-  task and the ones alongside it. On a heading it sorts the tasks under
-  it. Numbers sort by value, so "2" comes before "10", and subtasks move
+- **Sort tasks A–Z.** **Task › Sort A–Z** (Cmd-Option-S) sorts the level
+  you're on: the task you're in and the ones alongside it. To sort a
+  task's subtasks, click into one of them. On a heading it sorts the
+  tasks under it, and with no task selected it sorts the top level.
+  Numbers sort by value, so "2" comes before "10", and subtasks move
   with their tasks. Top-level tasks stay between the headings around them.
 - **Heading attributes are hidden.** Markdown files written for Pandoc,
   kramdown and the like can end a heading with an attribute block, as in

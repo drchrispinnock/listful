@@ -264,16 +264,14 @@ public struct Outline: Equatable, Sendable {
         return destination
     }
 
-    /// The tasks a Sort on the item at `index` reorders: a task's subtasks if
-    /// it has any; otherwise the task and its siblings (for a top-level task,
-    /// those between the headings either side of it); for a heading, the
-    /// tasks under it up to the next heading. Nil if that's fewer than two.
+    /// The tasks a Sort on the item at `index` reorders: the level it's on,
+    /// i.e. the task and its siblings (for a top-level task, those between
+    /// the headings either side of it); for a heading, the tasks under it up
+    /// to the next heading. Nil if that's fewer than two.
     public func sortRange(for index: Int) -> Range<Int>? {
         let range: Range<Int>
         if items[index].isHeading {
             range = (index + 1)..<nextHeading(after: index)
-        } else if hasChildren(index) {
-            range = (index + 1)..<subtreeEnd(index)
         } else if let parent = parentIndex(index) {
             range = (parent + 1)..<subtreeEnd(parent)
         } else {

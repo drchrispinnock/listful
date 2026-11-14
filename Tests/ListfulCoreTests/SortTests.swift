@@ -13,24 +13,33 @@ import Testing
     }
 
     @Test func subtasksMoveWithTheirParents() {
-        var o = outline("- [ ] b\n  - [ ] b1\n- [x] a\n  - [ ] a1\n    - [ ] a11\n")
-        o.sortTasks(for: 2)  // "a" has subtasks, so those are sorted: just one
-        #expect(titles(o) == ["b", "b1", "a", "a1", "a11"])
-        o.sortTasks(for: 1)  // a leaf: sorts it with its siblings, of which it has none
-        #expect(titles(o) == ["b", "b1", "a", "a1", "a11"])
-        let parentless = outline("- [ ] b\n  - [ ] b1\n- [x] a\n  - [ ] a1\n    - [ ] a11\n- [ ] c\n")
-        var p = parentless
-        let changed5p = p.sortTasks(for: 5)
-        #expect(changed5p)
-        #expect(titles(p) == ["a", "a1", "a11", "b", "b1", "c"])
-        #expect(p.items[0].state == .done)
-        #expect(p.items.map(\.depth) == [0, 1, 2, 0, 1, 0])
+        var o = outline("- [ ] b\n  - [ ] b1\n- [x] a\n  - [ ] a1\n    - [ ] a11\n- [ ] c\n")
+        let changed = o.sortTasks(for: 0)  // "b" has subtasks, but sorts its own level
+        #expect(changed)
+        #expect(titles(o) == ["a", "a1", "a11", "b", "b1", "c"])
+        #expect(o.items[0].state == .done)
+        #expect(o.items.map(\.depth) == [0, 1, 2, 0, 1, 0])
     }
 
-    @Test func aTaskWithSubtasksSortsThem() {
+    @Test func collapsedParentsSortTheirLevel() {
+        // As in a real list: almost every task has hidden subtasks.
+        var o = outline("""
+        - [ ] Password <!-- listful: collapsed -->
+          - [ ] Videos
+          - [ ] Ramp
+        - [ ] Domain <!-- listful: collapsed -->
+          - [ ] x
+        - [ ] MTA
+        """)
+        let changed = o.sortTasks(for: 0)
+        #expect(changed)
+        #expect(titles(o) == ["Domain", "x", "MTA", "Password", "Videos", "Ramp"])
+    }
+
+    @Test func aSubtaskSortsItsSiblings() {
         var o = outline("- [ ] z\n- [ ] Parent\n  - [ ] c\n  - [ ] a\n    - [ ] deep\n  - [ ] b\n")
-        let changed1o = o.sortTasks(for: 1)
-        #expect(changed1o)
+        let changed = o.sortTasks(for: 2)
+        #expect(changed)
         #expect(titles(o) == ["z", "Parent", "a", "deep", "b", "c"])
     }
 
