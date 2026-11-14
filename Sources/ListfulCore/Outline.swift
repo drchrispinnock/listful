@@ -20,6 +20,10 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
     /// 1–3 for a heading (`#`, `##`, `###`); nil for a task. Headings are
     /// titles, not tasks: always top level, never done, and never parents.
     public var headingLevel: Int?
+    /// A heading's attribute block from the file, e.g. `{#setup .wide}`
+    /// (Pandoc, kramdown and others write these). Not shown, but written
+    /// back after the heading so the file keeps it.
+    public var headingAttributes: String?
 
     public var isHeading: Bool { headingLevel != nil }
 
@@ -29,7 +33,8 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
         state: TaskState = .open,
         depth: Int = 0,
         isCollapsed: Bool = false,
-        headingLevel: Int? = nil
+        headingLevel: Int? = nil,
+        headingAttributes: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -37,6 +42,7 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
         self.depth = depth
         self.isCollapsed = isCollapsed
         self.headingLevel = headingLevel
+        self.headingAttributes = headingAttributes
     }
 }
 
@@ -56,9 +62,14 @@ public struct Outline: Equatable, Sendable {
     public var title: String?
     /// Set when this list is a repeating checklist's template.
     public var schedule: RepeatSchedule?
+    /// The title's attribute block, if the file has one (see `TaskItem.headingAttributes`).
+    public var titleAttributes: String?
 
-    public init(title: String? = nil, items: [TaskItem] = [], schedule: RepeatSchedule? = nil) {
+    public init(
+        title: String? = nil, items: [TaskItem] = [], schedule: RepeatSchedule? = nil, titleAttributes: String? = nil
+    ) {
         self.title = title
+        self.titleAttributes = titleAttributes
         self.items = items
         self.schedule = schedule
         var previousDepth = -1

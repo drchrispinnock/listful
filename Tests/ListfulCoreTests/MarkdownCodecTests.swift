@@ -150,4 +150,44 @@ import Testing
         let reloaded = try store.load()
         #expect(MarkdownCodec.encode(reloaded) == sample)
     }
+
+    // MARK: - Heading attribute blocks
+
+    @Test func headingAttributeBlocksAreHiddenButKept() {
+        let text = """
+        # Project {#top}
+
+        ## Setup {#setup .wide}
+
+        - [ ] Install
+
+        ### Notes {-}
+
+        - [ ] Read
+        """ + "\n"
+        let outline = MarkdownCodec.decode(text)
+        #expect(outline.title == "Project")
+        #expect(outline.titleAttributes == "{#top}")
+        #expect(outline.items.map(\.title) == ["Setup", "Install", "Notes", "Read"])
+        #expect(outline.items[0].headingAttributes == "{#setup .wide}")
+        #expect(outline.items[2].headingAttributes == "{-}")
+        #expect(MarkdownCodec.encode(outline) == text)
+        #expect(MarkdownCodec.title(in: text) == "Project")
+    }
+
+    @Test func renamingAHeadingKeepsItsAttributes() {
+        var outline = MarkdownCodec.decode("## Setup {#setup}\n")
+        outline.setTitle("Getting started", at: 0)
+        #expect(MarkdownCodec.encode(outline) == "## Getting started {#setup}\n")
+    }
+
+    @Test func onlyATrailingBlockAfterTextIsAnAttributeBlock() {
+        #expect(MarkdownCodec.splitAttributes("{#only}") == ("{#only}", nil))
+        #expect(MarkdownCodec.splitAttributes("Use {braces} here") == ("Use {braces} here", nil))
+        #expect(MarkdownCodec.splitAttributes("Set {a} {#b}") == ("Set {a}", "{#b}"))
+        #expect(MarkdownCodec.splitAttributes("Empty {}") == ("Empty", "{}"))
+        // Tasks keep their braces.
+        let outline = MarkdownCodec.decode("- [ ] Task {#x}\n")
+        #expect(outline.items[0].title == "Task {#x}")
+    }
 }

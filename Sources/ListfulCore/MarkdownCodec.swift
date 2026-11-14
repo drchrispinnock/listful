@@ -15,7 +15,9 @@ import Foundation
 /// A repeating checklist's template has its schedule in a marker line of its
 /// own after the title (see `RepeatSchedule`).
 /// A `#` heading on the first line is the list's title. Other `#`, `##` and
-/// `###` lines at the left margin are headings. Nesting is two spaces per
+/// `###` lines at the left margin are headings; a trailing `{…}` attribute
+/// block on a heading (`## Setup {#setup}`) is kept aside, not shown as
+/// part of its text. Nesting is two spaces per
 /// level. State the checkbox can't express (decrufted, collapsed) goes in a
 /// trailing HTML comment, which Markdown renderers hide. Other lines that
 /// aren't list items become open tasks so that nothing in a hand-edited file
@@ -33,7 +35,7 @@ public enum MarkdownCodec {
         var previousWasHeading = false
 
         if let title = outline.title {
-            lines.append(headingLine(level: 1, title: title))
+            lines.append(headingLine(level: 1, title: title, attributes: outline.titleAttributes))
             previousWasHeading = true
         }
         if let schedule = outline.schedule {
@@ -46,7 +48,7 @@ public enum MarkdownCodec {
             if let level = item.headingLevel {
                 // Blank lines around headings, as Markdown is usually written.
                 if !lines.isEmpty { lines.append("") }
-                line = headingLine(level: level, title: item.title)
+                line = headingLine(level: level, title: item.title, attributes: item.headingAttributes)
             } else {
                 if previousWasHeading { lines.append("") }
                 line = String(repeating: indentUnit, count: item.depth)
@@ -66,6 +68,7 @@ public enum MarkdownCodec {
 
     public static func decode(_ text: String) -> Outline {
         var title: String?
+        var titleAttributes: String?
         var schedule: RepeatSchedule?
         var items: [TaskItem] = []
         var sawContent = false
@@ -87,14 +90,17 @@ public enum MarkdownCodec {
             sawContent = true
 
             if indent == 0, let heading = parseHeading(rest) {
+                let (text, attributes) = splitAttributes(heading.text)
                 if isFirstLine && heading.level == 1 {
-                    title = heading.text
+                    title = text
+                    titleAttributes = attributes
                     continue
                 }
                 items.append(TaskItem(
-                    title: heading.text,
+                    title: text,
                     isCollapsed: flags.contains("collapsed"),
-                    headingLevel: heading.level
+                    headingLevel: heading.level,
+                    headingAttributes: attributes
                 ))
                 // Tasks after a heading start again at the top level.
                 indentStack.removeAll()
@@ -117,7 +123,7 @@ public enum MarkdownCodec {
 
             items.append(TaskItem(title: rest, state: state, depth: depth, isCollapsed: flags.contains("collapsed")))
         }
-        return Outline(title: title, items: items, schedule: schedule)
+        return Outline(title: title, items: items, schedule: schedule, titleAttributes: titleAttributes)
     }
 
     /// The list title a file would decode to, without decoding the rest.
@@ -129,7 +135,7 @@ public enum MarkdownCodec {
             _ = takeMarker(from: &rest)
             if rest.isEmpty { continue }
             guard indent == 0, let heading = parseHeading(rest), heading.level == 1 else { return nil }
-            return heading.text
+            return splitAttributes(heading.text).text
         }
         return nil
     }
@@ -149,9 +155,19 @@ public enum MarkdownCodec {
         return (level, text)
     }
 
-    static func headingLine(level: Int, title: String) -> String {
+    static func headingLine(level: Int, title: String, attributes: String? = nil) -> String {
         let hashes = String(repeating: "#", count: level)
-        return title.isEmpty ? hashes : "\(hashes) \(title)"
+        let text = [title, attributes ?? ""].filter { !$0.isEmpty }.joined(separator: " ")
+        return text.isEmpty ? hashes : "\(hashes) \(text)"
+    }
+
+    /// Splits a trailing attribute block off a heading's text:
+    /// `"Setup {#setup .wide}"` → `("Setup", "{#setup .wide}")`. Only a block
+    /// after some text counts, so a heading that's all braces stays as it is.
+    public static func splitAttributes(_ text: String) -> (text: String, attributes: String?) {
+        guard let range = text.range(of: #"\s+\{[^{}]*\}$"#, options: .regularExpression) else { return (text, nil) }
+        let attributes = text[range].trimmingCharacters(in: .whitespaces)
+        return (String(text[..<range.lowerBound]), attributes)
     }
 
     // MARK: - Line parsing
