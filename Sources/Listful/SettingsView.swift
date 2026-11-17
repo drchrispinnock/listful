@@ -38,13 +38,16 @@ struct SettingsView: View {
 
             Section {
                 LabeledContent("Folder") {
-                    Text(library.folderURL.path(percentEncoded: false))
+                    Text(library.isUsingICloudFolder ? "iCloud Drive › Listful" : library.folderURL.path(percentEncoded: false))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
                 }
                 HStack {
                     Spacer()
+                    if library.canMoveToICloud {
+                        Button("Move to iCloud Drive…") { library.offerMoveToICloud() }
+                    }
                     Button("Show in Finder") { library.revealInFinder() }
                     Button("Choose…") { library.chooseFolder() }
                 }

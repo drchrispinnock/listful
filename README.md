@@ -6,7 +6,7 @@ subscription. Lists are plain Markdown files you own.
 - Bulleted tasks you can nest with Tab / Shift-Tab and collapse to their parent
 - Tasks are Open, Done (struck through or ticked) or Decrufted (tidied away, never deleted)
 - `#`, `##`, `###` headings; a `#` on the first line is the list's title
-- A sidebar of lists: one folder of `.md` files (default `~/Documents/Task Lists`),
+- A sidebar of lists: one folder of `.md` files (default iCloud Drive › Listful, shared with the iPhone and iPad app; before 0.6, `~/Documents/Task Lists`),
   plus any Markdown files elsewhere that you add
 
 Requires macOS 14 or later. Currently under development.

@@ -5,3 +5,5 @@ dist/
 *.key
 iOS/Listful.xcodeproj/
 iOS/build/
+iOS/Listful/Info.plist
+iOS/Listful/Listful.entitlements

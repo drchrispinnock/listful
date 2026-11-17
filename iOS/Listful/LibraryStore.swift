@@ -56,6 +56,11 @@ final class LibraryStore {
     /// A list or folder waiting for the user to confirm moving it to the Trash.
     var pendingTrash: URL?
     var isChoosingFolder = false
+    /// Looking up the iCloud Drive folder at launch, before anything shows.
+    private(set) var isLocatingFolder = false
+    /// True when the lists are in iCloud Drive › Listful rather than a
+    /// folder the user chose.
+    private(set) var isUsingICloudFolder = false
     var errorMessage: String?
 
     @ObservationIgnored private var library: TaskLibrary?
@@ -75,8 +80,13 @@ final class LibraryStore {
             return
         }
         #endif
-        if let url = FolderAccess.restore() {
+        if let url = FolderAccess.restoreChosen() {
             use(url, restoring: UserDefaults.standard.string(forKey: Keys.selectedList))
+            // Make iCloud Drive › Listful anyway, so it's there to switch to
+            // (and on the Mac, for moving the lists into).
+            Task.detached { _ = FolderAccess.iCloudFolder() }
+        } else {
+            useICloudFolder(restoring: UserDefaults.standard.string(forKey: Keys.selectedList))
         }
         dayObserver = NotificationCenter.default.addObserver(
             forName: .NSCalendarDayChanged, object: nil, queue: .main
@@ -99,7 +109,33 @@ final class LibraryStore {
         if let previous, previous != url { previous.stopAccessingSecurityScopedResource() }
     }
 
+    /// Goes back to iCloud Drive › Listful from a chosen folder.
+    func useICloudFolder() {
+        FolderAccess.forgetChosen()
+        useICloudFolder(restoring: nil)
+    }
+
+    private func useICloudFolder(restoring saved: String?) {
+        isLocatingFolder = true
+        Task {
+            let url = await Task.detached { FolderAccess.iCloudFolder() }.value
+            isLocatingFolder = false
+            guard let url else {
+                if folderURL == nil {
+                    errorMessage = "iCloud Drive isn't available. Turn it on in Settings › your name › iCloud, "
+                        + "or choose a folder for your task lists."
+                }
+                return
+            }
+            let previous = folderURL
+            use(url, restoring: saved)
+            isUsingICloudFolder = true
+            previous?.stopAccessingSecurityScopedResource()
+        }
+    }
+
     private func use(_ url: URL, restoring saved: String?) {
+        isUsingICloudFolder = false
         closeDocument()
         folderURL = url
         let library = TaskLibrary(folderURL: url)

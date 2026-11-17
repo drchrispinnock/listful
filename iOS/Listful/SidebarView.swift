@@ -8,7 +8,7 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $library.selection) {
-            Section(library.folderURL?.lastPathComponent ?? "Task Lists") {
+            Section(library.isUsingICloudFolder ? "Listful" : library.folderURL?.lastPathComponent ?? "Task Lists") {
                 ForEach(library.ungroupedLists, id: \.self) { url in
                     ListRow(library: library, url: url, label: library.displayName(of: url))
                 }
@@ -175,11 +175,20 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    LabeledContent("Folder", value: library.folderURL?.lastPathComponent ?? "None")
+                    LabeledContent("Folder", value: library.isUsingICloudFolder
+                        ? "iCloud Drive › Listful" : library.folderURL?.lastPathComponent ?? "None")
+                    if !library.isUsingICloudFolder {
+                        Button("Use iCloud Drive › Listful") {
+                            dismiss()
+                            library.useICloudFolder()
+                        }
+                    }
                     Button("Choose Another Folder…") {
                         dismiss()
                         library.isChoosingFolder = true
                     }
+                } footer: {
+                    Text("iCloud Drive › Listful is the folder the Mac app uses too.")
                 }
                 Section("Done tasks") {
                     Toggle("Decruft deletes done tasks", isOn: $deleteDecrufted)

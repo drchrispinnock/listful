@@ -26,7 +26,9 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if library.folderURL == nil {
+            if library.folderURL == nil && library.isLocatingFolder {
+                ProgressView()
+            } else if library.folderURL == nil {
                 ChooseFolderView(library: library)
             } else {
                 NavigationSplitView {
@@ -43,7 +45,7 @@ struct RootView: View {
                 }
             }
         }
-        .fileImporter(isPresented: $library.isChoosingFolder, allowedContentTypes: [.folder]) { result in
+        .fileImporter(isPresented: $library.isChoosingFolder, allowedContentTypes: [.folder, .directory]) { result in
             if case .success(let url) = result { library.choose(url) }
         }
         .alert(
@@ -65,11 +67,12 @@ struct ChooseFolderView: View {
         ContentUnavailableView {
             Label("Choose Your Task Lists", systemImage: "folder")
         } description: {
-            Text("Listful keeps each list as a Markdown file in a folder. Choose the folder your Mac uses: "
-                + "usually iCloud Drive › Documents › Task Lists. You can make a new folder there too.")
+            Text("Listful keeps each list as a Markdown file, normally in iCloud Drive › Listful. "
+                + "Turn on iCloud Drive to use that, or choose another folder.")
         } actions: {
-            Button("Choose Folder…") { library.isChoosingFolder = true }
+            Button("Use iCloud Drive") { library.useICloudFolder() }
                 .buttonStyle(.borderedProminent)
+            Button("Choose Folder…") { library.isChoosingFolder = true }
         }
     }
 }

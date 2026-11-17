@@ -4,6 +4,32 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
+## 0.6 — 2026-11-17
+
+- **Your task lists move to iCloud Drive › Listful.** Listful now has a
+  folder of its own in iCloud Drive, shown in Finder as **iCloud Drive ›
+  Listful** with the app's icon. The coming iPhone and iPad app uses the
+  same folder, so your lists are there on every device without choosing
+  anything, and it no longer relies on Desktop & Documents syncing being
+  on.
+  - The folder appears on your Macs once the iPhone or iPad app has been
+    opened on your Apple Account. Until then nothing changes.
+  - Then, if your lists are in the old place, `Documents › Task Lists`,
+    Listful offers to move them: **Move Lists**, **Not Now** (it asks
+    again next time) or **Keep Using “Task Lists”**. Everything moves:
+    lists, folders and repeating checklists, including files iCloud
+    hasn't downloaded to this Mac. The empty Task Lists folder goes to the
+    Trash afterwards.
+  - Move them on one Mac only. Your other Macs see the lists have gone
+    and switch to the new folder by themselves, as long as they have
+    Listful 0.6. Update every Mac **before** moving, because an older
+    Listful would keep using the old folder.
+  - If iCloud Drive › Listful already has a list with the same name and
+    different contents, yours is kept beside it as “Name 2” and Listful
+    tells you. Identical copies are merged.
+  - A folder you chose yourself in Settings stays as it is. To move it,
+    use **Settings › Move to iCloud Drive…**.
+
 ## 0.5 — 2026-11-14
 
 - **Folders in the sidebar.**

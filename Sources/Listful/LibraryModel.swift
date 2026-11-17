@@ -32,14 +32,16 @@ final class LibraryModel {
         static let selectedList = "selectedList"
         static let linkedFiles = "linkedFiles"
         static let linkedFolders = "linkedFolders"
+        static let declinedICloudMove = "declinedICloudMove"
     }
 
     /// Extensions accepted when adding files from elsewhere.
     static let linkableExtensions: Set<String> = ["md", "markdown", "txt"]
 
-    static var defaultFolderURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appending(path: "Documents/Task Lists")
-    }
+    /// Where the lists were kept before 0.6, and still the starting point
+    /// until `checkICloudFolder` moves them (or finds them moved) to
+    /// iCloud Drive › Listful.
+    static var defaultFolderURL: URL { ListsMigration.legacyFolderURL() }
 
     let options = ViewOptions()
     private(set) var folderURL: URL
@@ -127,6 +129,8 @@ final class LibraryModel {
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                // After this handler: it may show an alert.
+                DispatchQueue.main.async { self?.checkICloudFolder() }
                 self?.refreshLists()
                 self?.document?.checkDisk()
                 self?.copiesWait?.cancel()
@@ -163,13 +167,114 @@ final class LibraryModel {
         panel.message = "Choose the folder that holds your task lists."
         panel.directoryURL = folderURL
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        switchFolder(to: url, restoring: nil)
+    }
 
+    private func switchFolder(to url: URL, restoring selectedName: String?) {
         closeDocument()
         folderURL = url
         library = TaskLibrary(folderURL: url)
         templateLibrary = TaskLibrary(folderURL: library.templatesFolderURL)
         UserDefaults.standard.set(url, forKey: Keys.folder)
-        loadFolder(restoring: nil)
+        loadFolder(restoring: selectedName)
+    }
+
+    // MARK: - iCloud Drive › Listful
+
+    /// True when the lists folder is iCloud Drive › Listful.
+    var isUsingICloudFolder: Bool {
+        Self.samePath(folderURL, ListsMigration.iCloudFolderURL())
+    }
+
+    /// iCloud Drive › Listful is on this Mac (the iPhone or iPad app has
+    /// made it) and the lists are somewhere else.
+    var canMoveToICloud: Bool {
+        !isUsingICloudFolder && ListsMigration.iCloudContainerExists(at: ListsMigration.iCloudFolderURL())
+    }
+
+    @ObservationIgnored private var hasAskedAboutICloud = false
+
+    /// At launch and on activation: if the lists are still in the old
+    /// default folder and iCloud Drive › Listful has arrived on this Mac,
+    /// move them there (asking first, once per run) or, when another Mac
+    /// has already moved them, just switch. A folder the user chose is
+    /// left alone; Settings offers the move for that.
+    func checkICloudFolder() {
+        guard Self.samePath(folderURL, Self.defaultFolderURL) else { return }
+        let iCloudFolder = ListsMigration.iCloudFolderURL()
+        switch ListsMigration.plan(from: folderURL, to: iCloudFolder) {
+        case .none:
+            return
+        case .switchOnly:
+            // The old folder is empty (another Mac moved the lists, or this
+            // launch just made it); trash it so it doesn't linger in iCloud.
+            let old = folderURL
+            try? FileManager.default.createDirectory(at: iCloudFolder, withIntermediateDirectories: true)
+            switchFolder(to: iCloudFolder, restoring: savedSelectionName)
+            try? ListsMigration.coordinatedTrash(old)
+        case .move:
+            guard !hasAskedAboutICloud, !UserDefaults.standard.bool(forKey: Keys.declinedICloudMove) else { return }
+            hasAskedAboutICloud = true
+            offerMoveToICloud(fromLaunch: true)
+        }
+    }
+
+    /// Asks, then moves everything in the lists folder to iCloud Drive ›
+    /// Listful and uses that.
+    func offerMoveToICloud(fromLaunch: Bool = false) {
+        let alert = NSAlert()
+        alert.messageText = "Move your task lists to iCloud Drive?"
+        alert.informativeText = """
+            Listful now keeps task lists in its own folder, iCloud Drive › Listful, which the iPhone \
+            and iPad app use too. The lists in “\(folderURL.lastPathComponent)” move there, with their \
+            folders and repeating checklists.
+
+            Do this on one Mac: your other Macs switch over by themselves once they have Listful 0.6.
+            """
+        alert.addButton(withTitle: "Move Lists")
+        alert.addButton(withTitle: "Not Now")
+        if fromLaunch { alert.addButton(withTitle: "Keep Using “\(folderURL.lastPathComponent)”") }
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            moveToICloud()
+        case .alertThirdButtonReturn:
+            UserDefaults.standard.set(true, forKey: Keys.declinedICloudMove)
+        default:
+            break
+        }
+    }
+
+    private func moveToICloud() {
+        let iCloudFolder = ListsMigration.iCloudFolderURL()
+        let selectedName = savedSelectionName
+        closeDocument()
+        do {
+            let renamed = try ListsMigration.move(from: folderURL, to: iCloudFolder)
+            switchFolder(to: iCloudFolder, restoring: selectedName)
+            if !renamed.isEmpty {
+                errorMessage = "iCloud Drive › Listful already had lists with the same names as some of yours, "
+                    + "so yours were renamed: "
+                    + renamed.map { "“\($0.0)” is now “\($0.1)”" }.joined(separator: ", ") + "."
+            }
+        } catch {
+            // Partly moved, perhaps: show what's left where it was.
+            loadFolder(restoring: selectedName)
+            errorMessage = "Couldn't move all of your task lists to iCloud Drive: \(error.localizedDescription) "
+                + "Whatever moved is in iCloud Drive › Listful; the rest is still in “\(folderURL.lastPathComponent)”."
+        }
+    }
+
+    /// The selected list as saved: relative to the lists folder if inside it.
+    private var savedSelectionName: String? {
+        UserDefaults.standard.string(forKey: Keys.selectedList)
+    }
+
+    private static func samePath(_ a: URL, _ b: URL) -> Bool {
+        func normal(_ url: URL) -> String {
+            let path = url.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false)
+            return path.count > 1 && path.hasSuffix("/") ? String(path.dropLast()) : path
+        }
+        return normal(a) == normal(b)
     }
 
     func revealInFinder(_ url: URL? = nil) {

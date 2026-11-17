@@ -20,6 +20,25 @@ targets:
     dependencies:
       - package: ListfulCore
         product: ListfulCore
+    # iCloud Drive › Listful: the app's own iCloud Documents container, public
+    # so it shows in Files and Finder. Bump CURRENT_PROJECT_VERSION when
+    # NSUbiquitousContainers changes, or iCloud Drive won't notice.
+    entitlements:
+      path: Listful/Listful.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers: [iCloud.com.chrispinnock.listful]
+        com.apple.developer.icloud-services: [CloudDocuments]
+        com.apple.developer.ubiquity-container-identifiers: [iCloud.com.chrispinnock.listful]
+    info:
+      path: Listful/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSUbiquitousContainers:
+          iCloud.com.chrispinnock.listful:
+            NSUbiquitousContainerIsDocumentScopePublic: true
+            NSUbiquitousContainerName: Listful
+            NSUbiquitousContainerSupportedFolderLevels: Any
     settings:
       base:
         PRODUCT_NAME: Listful
@@ -27,7 +46,7 @@ targets:
         DEVELOPMENT_TEAM: CP8YGC8C4P
         CODE_SIGN_STYLE: Automatic
         MARKETING_VERSION: "0.1"
-        CURRENT_PROJECT_VERSION: "1"
+        CURRENT_PROJECT_VERSION: "2"
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "6.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
