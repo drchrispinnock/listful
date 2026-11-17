@@ -34,6 +34,9 @@ targets:
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Only Apple's own HTTPS/file encryption: no export paperwork per upload.
+        ITSAppUsesNonExemptEncryption: false
+        LSApplicationCategoryType: public.app-category.productivity
         NSUbiquitousContainers:
           iCloud.com.chrispinnock.listful:
             NSUbiquitousContainerIsDocumentScopePublic: true
@@ -45,7 +48,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.chrispinnock.listful
         DEVELOPMENT_TEAM: CP8YGC8C4P
         CODE_SIGN_STYLE: Automatic
-        MARKETING_VERSION: "0.1"
+        MARKETING_VERSION: "1.0"
+        # scripts/release-ios passes the git commit count instead, so every
+        # upload's build number is higher than the last.
         CURRENT_PROJECT_VERSION: "2"
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "6.0"

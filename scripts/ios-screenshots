@@ -1,0 +1,52 @@
+#!/bin/sh
+# App Store screenshots of the iPhone/iPad app, from the sample lists in
+# iOS/ScreenshotSample, into dist/ios/screenshots/<device>/.
+#
+# The sizes App Store Connect needs: 6.9" iPhone (iPhone 18 Pro Max) and
+# 13" iPad (iPad Pro 13-inch). The status bar is set to Apple's usual 9:41,
+# full battery.
+set -eu
+
+cd "$(dirname "$0")/.."
+out=dist/ios/screenshots
+rm -rf "$out"
+mkdir -p "$out"
+
+(cd iOS && xcodegen generate --quiet)
+
+for device in "iPhone 18 Pro Max" "iPad Pro 13-inch (M5)"; do
+    printf '\n==> %s\n' "$device"
+    id=$(xcrun simctl list devices available | grep -F "$device (" | head -1 | grep -oE '[0-9A-F-]{36}')
+    xcrun simctl boot "$id" 2>/dev/null || true
+    xcrun simctl bootstatus "$id" >/dev/null
+    xcrun simctl ui "$id" appearance light
+    xcrun simctl status_bar "$id" override --time 9:41 --dataNetwork wifi --wifiBars 3 \
+        --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+
+    # A fresh copy each time: the app makes today's repeating copy, and the
+    # folder's name is the sidebar's heading.
+    sample=$(mktemp -d)/Listful
+    cp -R iOS/ScreenshotSample "$sample"
+    result="$out/$id.xcresult"
+    TEST_RUNNER_LISTFUL_SAMPLE="$sample" xcodebuild test -quiet \
+        -project iOS/Listful.xcodeproj -scheme "Listful iOS" -destination "id=$id" \
+        -derivedDataPath iOS/build -resultBundlePath "$result" \
+        -only-testing:"Listful iOS UITests/ScreenshotTests"
+
+    dir="$out/$(echo "$device" | sed 's/ (.*//; s/ /-/g')"
+    mkdir -p "$dir"
+    xcrun xcresulttool export attachments --path "$result" --output-path "$dir" >/dev/null
+    # Name the files after the attachments (manifest.json maps them).
+    python3 - "$dir" <<'PY'
+import json, os, sys
+d = sys.argv[1]
+for test in json.load(open(os.path.join(d, "manifest.json"))):
+    for a in test["attachments"]:
+        name = a["suggestedHumanReadableName"].split("_0_")[0] + ".png"
+        os.rename(os.path.join(d, a["exportedFileName"]), os.path.join(d, name))
+os.remove(os.path.join(d, "manifest.json"))
+PY
+    rm -rf "$result" "$(dirname "$sample")"
+    xcrun simctl status_bar "$id" clear
+    for f in "$dir"/*.png; do printf '%s  %s\n' "$(sips -g pixelWidth -g pixelHeight "$f" | awk '/pixel/ {printf "%s ", $2}')" "$f"; done
+done

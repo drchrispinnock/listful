@@ -1,0 +1,87 @@
+#!/bin/sh
+# Archives the iPhone/iPad app (Release) and uploads it to App Store Connect,
+# where it appears in TestFlight once processed (~15 min) and can then be
+# submitted for review.
+#
+#   scripts/release-ios            archive + upload
+#   scripts/release-ios --export   archive + export an .ipa into dist/ios/ (checks signing, no upload)
+#
+# Signing is automatic (team CP8YGC8C4P); xcodebuild makes or fetches the
+# Apple Distribution certificate and App Store profile as needed. It signs in
+# with the account in Xcode › Settings › Accounts, or, if these are all set,
+# an App Store Connect API key (App Store Connect › Users and Access ›
+# Integrations; role App Manager):
+#   ASC_KEY_ID       the key's ID
+#   ASC_ISSUER_ID    the issuer ID shown above the keys
+#   ASC_KEY_PATH     path to the downloaded AuthKey_<id>.p8
+#
+# The version is MARKETING_VERSION in iOS/project.yml; the build number is the
+# git commit count, so commit before each upload (App Store Connect rejects a
+# build number it has already seen for that version).
+set -eu
+
+cd "$(dirname "$0")/.."
+
+# Xcode's packaging runs rsync expecting the system's (openrsync); a
+# Homebrew rsync earlier in PATH makes the export fail with "Copy failed".
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH
+
+destination=upload
+[ "${1:-}" = "--export" ] && destination=export
+
+build=$(git rev-list --count HEAD)
+out=dist/ios
+archive="$out/Listful.xcarchive"
+
+step() { printf '\n==> %s\n' "$*"; }
+
+auth=""
+if [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] && [ -n "${ASC_KEY_PATH:-}" ]; then
+    auth="-authenticationKeyID $ASC_KEY_ID -authenticationKeyIssuerID $ASC_ISSUER_ID -authenticationKeyPath $ASC_KEY_PATH"
+fi
+
+if [ -n "$(git status --porcelain)" ]; then
+    echo "warning: uncommitted changes; build $build will be uploaded without them committed" >&2
+fi
+
+step "Generating the Xcode project"
+(cd iOS && xcodegen generate --quiet)
+
+rm -rf "$out"
+mkdir -p "$out"
+
+step "Archiving build $build"
+# shellcheck disable=SC2086
+xcodebuild archive -quiet \
+    -project iOS/Listful.xcodeproj -scheme "Listful iOS" -configuration Release \
+    -destination 'generic/platform=iOS' -archivePath "$archive" \
+    CURRENT_PROJECT_VERSION="$build" \
+    -allowProvisioningUpdates $auth
+
+cat > "$out/ExportOptions.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key><string>app-store-connect</string>
+    <key>destination</key><string>$destination</string>
+    <key>teamID</key><string>CP8YGC8C4P</string>
+    <key>signingStyle</key><string>automatic</string>
+    <key>uploadSymbols</key><true/>
+    <key>manageAppVersionAndBuildNumber</key><false/>
+</dict>
+</plist>
+PLIST
+
+if [ "$destination" = upload ]; then step "Uploading to App Store Connect"; else step "Exporting"; fi
+# shellcheck disable=SC2086
+xcodebuild -exportArchive -quiet \
+    -archivePath "$archive" -exportOptionsPlist "$out/ExportOptions.plist" -exportPath "$out" \
+    -allowProvisioningUpdates $auth
+
+version=$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$archive/Info.plist")
+if [ "$destination" = upload ]; then
+    step "Uploaded Listful $version ($build). It shows in App Store Connect › TestFlight once processed."
+else
+    step "Exported $out/Listful.ipa: Listful $version ($build)"
+fi
