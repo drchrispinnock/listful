@@ -22,8 +22,11 @@ final class ListDocument {
     var errorMessage: String?
     /// A one-shot request for a row's text field to take focus.
     var focusRequest: UUID?
-    /// The row being edited, which the keyboard toolbar acts on.
+    /// The row last edited, which the menus act on.
     var focusedID: UUID?
+    /// The row being edited now (keyboard up), which the bar above the
+    /// keyboard acts on.
+    var editingID: UUID?
 
     @ObservationIgnored private let store: MarkdownFileStore
     @ObservationIgnored private var pendingSave: Task<Void, Never>?
@@ -53,6 +56,10 @@ final class ListDocument {
 
     func visibleItems(showDecrufted: Bool) -> [TaskItem] {
         outline.visibleIndices(showDecrufted: showDecrufted).map { outline.items[$0] }
+    }
+
+    func title(of id: UUID) -> String? {
+        outline.index(of: id).map { outline.items[$0].title }
     }
 
     func canCollapse(_ id: UUID) -> Bool {

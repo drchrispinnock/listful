@@ -169,8 +169,6 @@ struct RepeatingRows: View {
 struct SettingsView: View {
     let library: LibraryStore
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("showCompletionTick") private var showTick = true
-    @AppStorage("showCompletionStrikethrough") private var showStrikethrough = true
     @AppStorage("deleteDecruftedTasks") private var deleteDecrufted = false
 
     var body: some View {
@@ -184,8 +182,6 @@ struct SettingsView: View {
                     }
                 }
                 Section("Done tasks") {
-                    Toggle("Show a tick", isOn: $showTick)
-                    Toggle("Strike through", isOn: $showStrikethrough)
                     Toggle("Decruft deletes done tasks", isOn: $deleteDecrufted)
                 }
             }

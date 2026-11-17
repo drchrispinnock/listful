@@ -39,3 +39,25 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         ENABLE_PREVIEWS: YES
+  Listful iOS UITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - ListfulUITests
+    dependencies:
+      - target: Listful iOS
+    settings:
+      base:
+        DEVELOPMENT_TEAM: CP8YGC8C4P
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "6.0"
+        TEST_TARGET_NAME: Listful iOS
+schemes:
+  Listful iOS:
+    build:
+      targets:
+        Listful iOS: all
+    test:
+      targets:
+        - Listful iOS UITests
