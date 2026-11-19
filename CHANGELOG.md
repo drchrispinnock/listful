@@ -4,6 +4,21 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
+## 0.7 — 2026-11-19
+
+- **Only tasks are tasks.** Text in a list file that isn't a task or a
+  heading (paragraphs, notes under a task, numbered lines) used to be
+  turned into tasks. Now it's shown as it is, in grey under the task or
+  heading it follows, and left alone: it can't be edited in Listful, but
+  it stays in the file exactly as written and moves with its task.
+- **`{…}` attribute blocks are hidden everywhere.** Blocks like `{#id}` or
+  `{.class}` at the end of a task were shown as part of its text, and a
+  line holding nothing but one (`- [ ] {#id: …}`) showed as an empty
+  task. Both are now hidden, as they already were on headings, and kept
+  in the file.
+- Pasting plain lines still makes a task of each.
+- The same applies in the iPhone and iPad app.
+
 ## 0.6 — 2026-11-17
 
 - **Your task lists move to iCloud Drive › Listful.** Listful now has a

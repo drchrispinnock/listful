@@ -2,19 +2,21 @@
 # App Store screenshots of the iPhone/iPad app, from the sample lists in
 # iOS/ScreenshotSample, into dist/ios/screenshots/<device>/.
 #
-# The sizes App Store Connect needs: 6.9" iPhone (iPhone 18 Pro Max) and
-# 13" iPad (iPad Pro 13-inch). The status bar is set to Apple's usual 9:41,
+# The sizes App Store Connect needs: 6.9" iPhone (iPhone 18 Pro Max,
+# 1320x2868), 6.3" iPhone (iPhone 18 Pro, 1206x2622) and 13" iPad (iPad Pro
+# 13-inch, 2064x2752). Pass device names to make only those, e.g.
+# scripts/ios-screenshots "iPhone 18 Pro". The status bar is set to Apple's usual 9:41,
 # full battery.
 set -eu
 
 cd "$(dirname "$0")/.."
 out=dist/ios/screenshots
-rm -rf "$out"
 mkdir -p "$out"
+[ $# -gt 0 ] || set -- "iPhone 18 Pro Max" "iPhone 18 Pro" "iPad Pro 13-inch (M5)"
 
 (cd iOS && xcodegen generate --quiet)
 
-for device in "iPhone 18 Pro Max" "iPad Pro 13-inch (M5)"; do
+for device in "$@"; do
     printf '\n==> %s\n' "$device"
     id=$(xcrun simctl list devices available | grep -F "$device (" | head -1 | grep -oE '[0-9A-F-]{36}')
     xcrun simctl boot "$id" 2>/dev/null || true
@@ -34,6 +36,7 @@ for device in "iPhone 18 Pro Max" "iPad Pro 13-inch (M5)"; do
         -only-testing:"Listful iOS UITests/ScreenshotTests"
 
     dir="$out/$(echo "$device" | sed 's/ (.*//; s/ /-/g')"
+    rm -rf "$dir"
     mkdir -p "$dir"
     xcrun xcresulttool export attachments --path "$result" --output-path "$dir" >/dev/null
     # Name the files after the attachments (manifest.json maps them).

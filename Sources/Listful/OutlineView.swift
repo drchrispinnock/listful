@@ -22,6 +22,11 @@ struct OutlineView: View {
                         ListTitleField(document: document)
                             .padding(.bottom, 10)
                     }
+                    let preamble = MarkdownCodec.paragraphs(of: document.outline.preamble)
+                    if !preamble.isEmpty {
+                        NotesView(paragraphs: preamble)
+                            .padding(.bottom, 8)
+                    }
                     ForEach(rows) { item in
                         TaskRow(item: item, document: document, isSelected: selected.contains(item.id))
                     }
@@ -113,22 +118,31 @@ struct TaskRow: View {
     static let bulletOffset: CGFloat = 20
 
     var body: some View {
-        HStack(spacing: 6) {
-            disclosure
-            // The text field stays at a fixed position in the stack so it
-            // keeps its identity (and focus) when a task becomes a heading.
-            if !item.isHeading { checkbox }
-            TaskTextField(
-                text: item.title,
-                font: font,
-                placeholder: item.isHeading ? "Heading" : "",
-                isStruckThrough: !item.isHeading && showStrikethrough && item.state != .open,
-                wantsFocus: document.focusRequestID == item.id,
-                focusCaret: document.focusRequestCaret,
-                onTextChange: { document.setTitle($0, for: item.id) },
-                onFocus: { document.didFocus(item.id) },
-                onCommand: handle
-            )
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                disclosure
+                // The text field stays at a fixed position in the stack so it
+                // keeps its identity (and focus) when a task becomes a heading.
+                if !item.isHeading { checkbox }
+                TaskTextField(
+                    text: item.title,
+                    font: font,
+                    placeholder: item.isHeading ? "Heading" : "",
+                    isStruckThrough: !item.isHeading && showStrikethrough && item.state != .open,
+                    wantsFocus: document.focusRequestID == item.id,
+                    focusCaret: document.focusRequestCaret,
+                    onTextChange: { document.setTitle($0, for: item.id) },
+                    onFocus: { document.didFocus(item.id) },
+                    onCommand: handle
+                )
+            }
+            let notes = MarkdownCodec.paragraphs(of: item.notes)
+            if !notes.isEmpty {
+                // Under the text: past the disclosure column and tick box.
+                NotesView(paragraphs: notes)
+                    .padding(.leading, Self.bulletOffset + (item.isHeading ? 0 : 16 + 6))
+                    .padding(.bottom, 2)
+            }
         }
         .padding(.leading, CGFloat(item.depth) * Self.indentWidth)
         .padding(.top, topPadding)
@@ -269,5 +283,24 @@ struct ListTitleField: View {
         .font(.system(size: 28, weight: .bold))
         .onSubmit { document.focusFirstRow() }
         .help("List title (the # line at the top of the file)")
+    }
+}
+
+/// Text from the file that isn't a task (`TaskItem.notes`, the outline's
+/// preamble): shown as it is, not editable here.
+struct NotesView: View {
+    let paragraphs: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                Text(verbatim: paragraph)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
     }
 }

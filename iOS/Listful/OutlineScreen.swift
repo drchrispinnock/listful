@@ -60,6 +60,14 @@ struct OutlineScreen: View {
                     .listRowSeparator(.hidden)
                     .moveDisabled(true)
             }
+            let preamble = MarkdownCodec.paragraphs(of: document.outline.preamble)
+            if !preamble.isEmpty {
+                NotesView(paragraphs: preamble)
+                    // In line with the title above.
+                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 6, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .moveDisabled(true)
+            }
             ForEach(rows) { item in
                 RowView(item: item, document: document)
                     .moveDisabled(item.isHeading)
@@ -145,26 +153,14 @@ struct RowView: View {
     private static let indentWidth: CGFloat = 22
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            Color.clear.frame(width: CGFloat(item.depth) * Self.indentWidth, height: 1)
-            chevron
-            if !item.isHeading {
-                Button { document.toggleDone(item.id) } label: {
-                    Image(systemName: symbol)
-                        .imageScale(.large)
-                        .foregroundStyle(item.state != .open ? Color.accentColor : Color.secondary)
-                        .frame(width: 24, height: lineHeight)
-                        // A finger-sized target around the small symbol.
-                        .contentShape(Rectangle().inset(by: -8))
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(item.state == .open ? "Mark done" : "Mark open")
+        VStack(alignment: .leading, spacing: 2) {
+            row
+            let notes = MarkdownCodec.paragraphs(of: item.notes)
+            if !notes.isEmpty {
+                // Under the text: past the indent, chevron and tick box.
+                NotesView(paragraphs: notes)
+                    .padding(.leading, CGFloat(item.depth) * Self.indentWidth + 14 + 6 + (item.isHeading ? 0 : 24 + 6))
             }
-            TaskTextView(
-                id: item.id, text: item.title, font: font,
-                isDimmed: !item.isHeading && item.state != .open,
-                wantsFocus: document.focusRequest == item.id,
-                document: document)
         }
         .padding(.top, item.isHeading ? 6 : 0)
         .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12))
@@ -189,6 +185,30 @@ struct RowView: View {
             Button("Sort A–Z", systemImage: "arrow.up.arrow.down") { document.sort(item.id) }
             Divider()
             Button("Delete", systemImage: "trash", role: .destructive) { document.delete(item.id) }
+        }
+    }
+
+    private var row: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Color.clear.frame(width: CGFloat(item.depth) * Self.indentWidth, height: 1)
+            chevron
+            if !item.isHeading {
+                Button { document.toggleDone(item.id) } label: {
+                    Image(systemName: symbol)
+                        .imageScale(.large)
+                        .foregroundStyle(item.state != .open ? Color.accentColor : Color.secondary)
+                        .frame(width: 24, height: lineHeight)
+                        // A finger-sized target around the small symbol.
+                        .contentShape(Rectangle().inset(by: -8))
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(item.state == .open ? "Mark done" : "Mark open")
+            }
+            TaskTextView(
+                id: item.id, text: item.title, font: font,
+                isDimmed: !item.isHeading && item.state != .open,
+                wantsFocus: document.focusRequest == item.id,
+                document: document)
         }
     }
 
@@ -229,5 +249,23 @@ struct RowView: View {
         case .open: return isCollapsedParent ? "circle.circle" : "circle"
         case .done, .decrufted: return "checkmark.circle.fill"
         }
+    }
+}
+
+/// Text from the file that isn't a task (`TaskItem.notes`): shown as it is,
+/// not editable here.
+struct NotesView: View {
+    let paragraphs: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                Text(verbatim: paragraph)
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
     }
 }

@@ -54,9 +54,10 @@ import Testing
             -
             """
         let o = MarkdownCodec.decode(text)
-        #expect(o.items.map(\.title) == ["Intro line", "plain bullet", "tab-indented done", "four-space child", ""])
-        #expect(o.items.map(\.depth) == [0, 0, 1, 1, 0])
-        #expect(o.items.map(\.state) == [.open, .open, .done, .open, .open])
+        #expect(o.preamble == ["Intro line"])
+        #expect(o.items.map(\.title) == ["plain bullet", "tab-indented done", "four-space child", ""])
+        #expect(o.items.map(\.depth) == [0, 1, 1, 0])
+        #expect(o.items.map(\.state) == [.open, .done, .open, .open])
     }
 
     // MARK: Headings and titles
@@ -118,7 +119,8 @@ import Testing
         // Not headings: deeper levels, indented, or inside a task's text.
         let o = MarkdownCodec.decode("- [ ] first\n#### Deep\n  # indented\n- [ ] # literal\n")
         #expect(o.items.allSatisfy { !$0.isHeading })
-        #expect(o.items.map(\.title) == ["first", "#### Deep", "# indented", "# literal"])
+        #expect(o.items.map(\.title) == ["first", "# literal"])
+        #expect(o.items[0].notes == ["#### Deep", "  # indented"])
     }
 
     @Test func headingResetsIndentation() {
@@ -169,8 +171,8 @@ import Testing
         #expect(outline.title == "Project")
         #expect(outline.titleAttributes == "{#top}")
         #expect(outline.items.map(\.title) == ["Setup", "Install", "Notes", "Read"])
-        #expect(outline.items[0].headingAttributes == "{#setup .wide}")
-        #expect(outline.items[2].headingAttributes == "{-}")
+        #expect(outline.items[0].attributes == "{#setup .wide}")
+        #expect(outline.items[2].attributes == "{-}")
         #expect(MarkdownCodec.encode(outline) == text)
         #expect(MarkdownCodec.title(in: text) == "Project")
     }
@@ -186,8 +188,83 @@ import Testing
         #expect(MarkdownCodec.splitAttributes("Use {braces} here") == ("Use {braces} here", nil))
         #expect(MarkdownCodec.splitAttributes("Set {a} {#b}") == ("Set {a}", "{#b}"))
         #expect(MarkdownCodec.splitAttributes("Empty {}") == ("Empty", "{}"))
-        // Tasks keep their braces.
-        let outline = MarkdownCodec.decode("- [ ] Task {#x}\n")
-        #expect(outline.items[0].title == "Task {#x}")
+    }
+
+    // MARK: Notes (lines that aren't tasks)
+
+    @Test func taskAttributeBlocksAreHiddenButKept() {
+        let text = "- [ ] Task {#x}\n  - [x] Sub {.y} <!-- listful: decrufted -->\n"
+        let outline = MarkdownCodec.decode(text)
+        #expect(outline.items.map(\.title) == ["Task", "Sub"])
+        #expect(outline.items.map(\.attributes) == ["{#x}", "{.y}"])
+        #expect(MarkdownCodec.encode(outline) == text)
+    }
+
+    let withNotes = """
+        # Reading
+
+        Books I mean to get to.
+        Roughly in order.
+
+        - [ ] Herriot
+          - [ ] Vet in Harness
+          - [ ] {#id: Reading_3_Clarkson}
+          - [ ] Vets Might Fly
+            borrowed from Sam
+
+        ## Clarkson
+
+        Farming ones first.
+
+        1. Diddly Squat
+        2. The Farmer's Year
+
+        - [ ] Diddly Squat
+
+        """
+
+    @Test func linesThatAreNotTasksBecomeNotesOfTheItemBefore() {
+        let o = MarkdownCodec.decode(withNotes)
+        #expect(o.preamble == ["Books I mean to get to.", "Roughly in order."])
+        #expect(o.items.map(\.title) == ["Herriot", "Vet in Harness", "Vets Might Fly", "Clarkson", "Diddly Squat"])
+        #expect(o.items[1].notes == ["  - [ ] {#id: Reading_3_Clarkson}"])
+        #expect(o.items[2].notes == ["    borrowed from Sam"])
+        #expect(o.items[3].notes == ["Farming ones first.", "", "1. Diddly Squat", "2. The Farmer's Year"])
+        // The depths ignore the notes.
+        #expect(o.items.map(\.depth) == [0, 1, 1, 0, 0])
+    }
+
+    @Test func notesRoundTrip() {
+        #expect(MarkdownCodec.encode(MarkdownCodec.decode(withNotes)) == withNotes)
+    }
+
+    @Test func notesMoveWithTheirTask() {
+        var o = MarkdownCodec.decode(withNotes)
+        o.moveUp(at: 2)
+        #expect(Array(o.items.map(\.title)[1...2]) == ["Vets Might Fly", "Vet in Harness"])
+        #expect(o.items[1].notes == ["    borrowed from Sam"])
+        #expect(o.items[2].notes == ["  - [ ] {#id: Reading_3_Clarkson}"])
+    }
+
+    @Test func joiningKeepsTheJoinedTasksNotes() {
+        var o = MarkdownCodec.decode("- [ ] a\n  note a\n- [ ] b\n  note b\n")
+        o.join(1, into: 0)
+        #expect(o.items.map(\.title) == ["ab"])
+        #expect(o.items[0].notes == ["  note a", "", "  note b"])
+    }
+
+    @Test func paragraphsToShow() {
+        let notes = ["Farming ones first,", "  in order. {.lead}", "", "  - [ ] {#id: x}", "{: .note}",
+                     "<!-- a comment -->", "1. Diddly Squat"]
+        #expect(MarkdownCodec.paragraphs(of: notes) == ["Farming ones first, in order.", "1. Diddly Squat"])
+        #expect(MarkdownCodec.paragraphs(of: ["  - [ ] {#id: x}"]).isEmpty)
+        #expect(MarkdownCodec.paragraphs(of: ["1. One", "2. Two", "> Quote", "goes on"])
+            == ["1. One", "2. Two", "> Quote goes on"])
+    }
+
+    @Test func pastedPlainLinesStayTasks() {
+        let o = MarkdownCodec.decode("milk\n  eggs\n", plainLinesAreTasks: true)
+        #expect(o.items.map(\.title) == ["milk", "eggs"])
+        #expect(o.items.allSatisfy { $0.notes.isEmpty })
     }
 }

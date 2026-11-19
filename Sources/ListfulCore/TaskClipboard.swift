@@ -28,7 +28,7 @@ public enum TaskClipboard {
     /// lines, one task each. Blank lines are dropped; a `#` line at the top
     /// is a heading here, not a list title.
     public static func items(from text: String) -> [TaskItem] {
-        let outline = MarkdownCodec.decode(text)
+        let outline = MarkdownCodec.decode(text, plainLinesAreTasks: true)
         var items = outline.items
         if let title = outline.title { items.insert(TaskItem(title: title, headingLevel: 1), at: 0) }
         return Outline(items: items.filter { $0.isHeading || !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }).items

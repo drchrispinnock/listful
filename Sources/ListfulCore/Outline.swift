@@ -20,10 +20,15 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
     /// 1–3 for a heading (`#`, `##`, `###`); nil for a task. Headings are
     /// titles, not tasks: always top level, never done, and never parents.
     public var headingLevel: Int?
-    /// A heading's attribute block from the file, e.g. `{#setup .wide}`
-    /// (Pandoc, kramdown and others write these). Not shown, but written
-    /// back after the heading so the file keeps it.
-    public var headingAttributes: String?
+    /// A trailing attribute block from the file, e.g. `{#setup .wide}`
+    /// (Pandoc, kramdown and others write these), on a heading or a task.
+    /// Not shown, but written back after the text so the file keeps it.
+    public var attributes: String?
+    /// Lines from the file after this item that aren't tasks or headings
+    /// (paragraphs, notes, attribute-only lines), verbatim: shown read-only
+    /// under the item and written back after it, so they travel with it.
+    /// Blank lines between them are kept as empty strings.
+    public var notes: [String]
 
     public var isHeading: Bool { headingLevel != nil }
 
@@ -34,7 +39,8 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
         depth: Int = 0,
         isCollapsed: Bool = false,
         headingLevel: Int? = nil,
-        headingAttributes: String? = nil
+        attributes: String? = nil,
+        notes: [String] = []
     ) {
         self.id = id
         self.title = title
@@ -42,7 +48,8 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
         self.depth = depth
         self.isCollapsed = isCollapsed
         self.headingLevel = headingLevel
-        self.headingAttributes = headingAttributes
+        self.attributes = attributes
+        self.notes = notes
     }
 }
 
@@ -62,14 +69,19 @@ public struct Outline: Equatable, Sendable {
     public var title: String?
     /// Set when this list is a repeating checklist's template.
     public var schedule: RepeatSchedule?
-    /// The title's attribute block, if the file has one (see `TaskItem.headingAttributes`).
+    /// The title's attribute block, if the file has one (see `TaskItem.attributes`).
     public var titleAttributes: String?
+    /// Lines before the first item that aren't tasks or headings (see
+    /// `TaskItem.notes`).
+    public var preamble: [String]
 
     public init(
-        title: String? = nil, items: [TaskItem] = [], schedule: RepeatSchedule? = nil, titleAttributes: String? = nil
+        title: String? = nil, items: [TaskItem] = [], schedule: RepeatSchedule? = nil, titleAttributes: String? = nil,
+        preamble: [String] = []
     ) {
         self.title = title
         self.titleAttributes = titleAttributes
+        self.preamble = preamble
         self.items = items
         self.schedule = schedule
         var previousDepth = -1
@@ -458,6 +470,10 @@ public struct Outline: Equatable, Sendable {
         let isInside = items[previous].isHeading || index < subtreeEnd(previous)
         items.removeSubrange(index..<end)
         items[previous].title += item.title
+        if !item.notes.isEmpty {
+            if !items[previous].notes.isEmpty { items[previous].notes.append("") }
+            items[previous].notes += item.notes
+        }
         guard !children.isEmpty else { return caret }
 
         let base = items[previous].isHeading ? 0 : items[previous].depth + 1
