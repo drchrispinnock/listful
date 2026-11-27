@@ -170,6 +170,19 @@ struct SettingsView: View {
     let library: LibraryStore
     @Environment(\.dismiss) private var dismiss
 
+    private var makerExplanation: String {
+        guard let maker = library.maker else { return "Waiting for this setting to download from iCloud…" }
+        switch maker.device {
+        case nil:
+            return "Each device makes the next copy when it's due. If two make the same one while out of touch, "
+                + "the two versions are merged task by task when they sync."
+        case library.thisDevice:
+            return "Only this \(UIDevice.current.model) makes the copies. Your other devices show each one once it has synced."
+        case let other?:
+            return "Only “\(other.name)” makes the copies; this \(UIDevice.current.model) shows each one once it has synced."
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -188,6 +201,23 @@ struct SettingsView: View {
                     }
                 } footer: {
                     Text("iCloud Drive › Listful is the folder the Mac app uses too.")
+                }
+                Section {
+                    Picker("Made on", selection: Binding(
+                        get: { library.maker?.device },
+                        set: { library.setMaker($0) }
+                    )) {
+                        Text("Any device").tag(RepeatingDevice?.none)
+                        Text("This \(UIDevice.current.model)").tag(Optional(library.thisDevice))
+                        if let other = library.maker?.device, other != library.thisDevice {
+                            Text(other.name).tag(Optional(other))
+                        }
+                    }
+                    .disabled(library.maker == nil)
+                } header: {
+                    Text("Repeating checklists")
+                } footer: {
+                    Text(makerExplanation)
                 }
             }
             .navigationTitle("Settings")

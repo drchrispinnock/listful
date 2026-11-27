@@ -42,42 +42,40 @@ public enum RepeatingChecklists {
         return isKey ? (key, duplicate) : nil
     }
 
-    /// `duplicate`, a second copy of the same period, folded into `original`.
-    /// A task both have (by title, under the same heading and parent) is
-    /// done if it's done in either; tasks only the duplicate has are added
-    /// after the original's, under the same heading.
-    public static func merging(_ duplicate: Outline, into original: Outline) -> Outline {
-        var merged = sections(of: original.items)
-        for section in sections(of: duplicate.items) {
-            let nodes = dropBlank(section.nodes)
-            if let target = merged.firstIndex(where: { sameHeading($0.heading, section.heading) }) {
-                fold(nodes, into: &merged[target].nodes)
-            } else if section.heading == nil {
-                merged.insert(Section(heading: nil, nodes: nodes), at: 0)
-            } else {
-                merged.append(Section(heading: section.heading, nodes: nodes))
-            }
-        }
-        return Outline(title: original.title, items: flatten(merged), schedule: original.schedule)
+    /// `duplicate`, a second copy of the same period, folded into `original`
+    /// task by task (see `mergeVersions`): a task done in either is done,
+    /// and tasks only the duplicate has are added where they are there.
+    public static func merging(
+        _ duplicate: Outline, into original: Outline, base: Outline? = nil, template: Outline? = nil
+    ) -> Outline {
+        mergeVersions(original, duplicate, base: base, template: template)
     }
 
     /// Merges each duplicate copy (see `copies(ofTemplateNamed:in:)`) into
     /// its original and moves it to the Trash, except `keeping` (the open
     /// list, which may have unsaved edits). The original is written first,
-    /// so nothing is lost if trashing fails. Returns the duplicates trashed.
-    public static func mergeDuplicates(templates: TaskLibrary, lists: TaskLibrary, keeping: URL? = nil) -> [URL] {
+    /// so nothing is lost if trashing fails. `bases` holds copies as this
+    /// device made them (`MadeCopies`), by name. Returns the duplicates trashed.
+    public static func mergeDuplicates(
+        templates: TaskLibrary, lists: TaskLibrary, keeping: URL? = nil, bases: [String: String] = [:]
+    ) -> [URL] {
         guard let templateURLs = try? templates.lists(), let listURLs = try? lists.lists() else { return [] }
         var trashed: [URL] = []
-        for template in templateURLs.map(TaskLibrary.displayName(of:)) {
+        for templateURL in templateURLs {
+            let template = TaskLibrary.displayName(of: templateURL)
+            var templateOutline: Outline??
             for url in listURLs where url != keeping {
                 guard let (key, duplicate) = copyKey(of: url, template: template), duplicate > 0 else { continue }
-                let originalStore = MarkdownFileStore(fileURL: lists.url(forName: copyName(template: template, key: key)))
+                let name = copyName(template: template, key: key)
+                let originalStore = MarkdownFileStore(fileURL: lists.url(forName: name))
                 do {
                     guard let originalText = try originalStore.readText(),
                           let duplicateText = try MarkdownFileStore(fileURL: url).readText()
                     else { continue }
+                    if templateOutline == nil { templateOutline = try? MarkdownFileStore(fileURL: templateURL).load() }
                     let merged = MarkdownCodec.encode(merging(
-                        MarkdownCodec.decode(duplicateText), into: MarkdownCodec.decode(originalText)))
+                        MarkdownCodec.decode(duplicateText), into: MarkdownCodec.decode(originalText),
+                        base: bases[name].map(MarkdownCodec.decode), template: templateOutline ?? nil))
                     if merged != originalText { try originalStore.writeText(merged) }
                     try lists.trashList(at: url)
                     trashed.append(url)
@@ -165,16 +163,34 @@ public enum RepeatingChecklists {
         public let copy: URL?
         /// The copy that unfinished tasks were moved out of, if any.
         public let previous: URL?
+        /// The copy's text as made, for `MadeCopies`.
+        public let madeText: String?
         public let error: String?
+
+        public init(template: URL, copy: URL?, previous: URL?, madeText: String? = nil, error: String?) {
+            self.template = template
+            self.copy = copy
+            self.previous = previous
+            self.madeText = madeText
+            self.error = error
+        }
     }
 
     /// Makes each template's copy for the period containing `date`, if it
     /// doesn't exist yet. Templates with no tasks written in them are skipped,
     /// so a new template isn't copied before it's been filled in.
+    ///
+    /// With `deviceID`, copies are only made if no device has been chosen
+    /// to make them (`maker(in:)`), or this one has. Until the choice has
+    /// downloaded from iCloud, none are made.
     public static func makeDueCopies(
         templates: TaskLibrary, lists: TaskLibrary,
-        date: Date, calendar: Calendar, locale: Locale
+        date: Date, calendar: Calendar, locale: Locale, deviceID: String? = nil
     ) -> [Result] {
+        if let deviceID {
+            guard let maker = try? maker(in: templates) else { return [] }
+            if let chosen = maker.device, chosen.id != deviceID { return [] }
+        }
         guard let templateURLs = try? templates.lists() else { return [] }
         let existing = Set(((try? lists.lists()) ?? []).map(TaskLibrary.displayName(of:)))
         var results: [Result] = []
@@ -209,11 +225,14 @@ public enum RepeatingChecklists {
                 let made = makeCopy(of: template, name: name, label: label, carryingOverFrom: previous)
                 let copyURL = lists.url(forName: copyName)
                 // Write the copy first, so a failure can't lose moved tasks.
-                try MarkdownFileStore(fileURL: copyURL).save(made.copy)
+                let madeText = MarkdownCodec.encode(made.copy)
+                try MarkdownFileStore(fileURL: copyURL).writeText(madeText)
                 if let updated = made.previous, let previousURL {
                     try MarkdownFileStore(fileURL: previousURL).save(updated)
                 }
-                results.append(Result(template: url, copy: copyURL, previous: made.previous == nil ? nil : previousURL, error: nil))
+                results.append(Result(
+                    template: url, copy: copyURL, previous: made.previous == nil ? nil : previousURL,
+                    madeText: madeText, error: nil))
             } catch {
                 results.append(Result(
                     template: url, copy: nil, previous: nil,
@@ -309,20 +328,6 @@ public enum RepeatingChecklists {
 
     private static func isBlank(_ node: Node) -> Bool {
         !node.item.isHeading && node.children.isEmpty && node.item.title.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
-    /// Adds `incoming` after `nodes`, except that a task `nodes` already has
-    /// (by title) takes its done state if it's done there, and gets its
-    /// subtasks folded in the same way.
-    private static func fold(_ incoming: [Node], into nodes: inout [Node]) {
-        for node in incoming {
-            if let i = nodes.firstIndex(where: { sameTitle($0.item, node.item) }) {
-                if nodes[i].item.state == .open { nodes[i].item.state = node.item.state }
-                fold(node.children, into: &nodes[i].children)
-            } else {
-                nodes.append(node)
-            }
-        }
     }
 
     /// Adds `carried` before `nodes`, except that a task `nodes` already has

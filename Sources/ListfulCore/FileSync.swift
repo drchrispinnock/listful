@@ -23,7 +23,14 @@ public enum FileSync {
     /// changed since, the two versions are merged line by line; if they
     /// clash, the other version wins and `mine` is kept beside it as a copy.
     /// A file that was there and has gone is never recreated.
-    public static func save(_ mine: String, to store: MarkdownFileStore, synced: String?, date: Date = Date()) throws -> SaveOutcome {
+    ///
+    /// With `clashMerge`, a clash is settled by it instead, given this
+    /// version and the other: repeating checklists' copies merge task by
+    /// task (`RepeatingChecklists.mergeVersions`).
+    public static func save(
+        _ mine: String, to store: MarkdownFileStore, synced: String?,
+        clashMerge: ((_ mine: String, _ theirs: String) -> String)? = nil, date: Date = Date()
+    ) throws -> SaveOutcome {
         guard let disk = try store.readText() else {
             guard let synced else {
                 try store.writeText(mine)
@@ -42,6 +49,11 @@ public enum FileSync {
             if text != disk { try store.writeText(text) }
             return .merged(text)
         case .conflict:
+            if let clashMerge {
+                let text = clashMerge(mine, disk)
+                if text != disk { try store.writeText(text) }
+                return .merged(text)
+            }
             return .conflict(disk: disk, copy: try writeCopy(mine, beside: store.fileURL, date: date))
         }
     }

@@ -32,6 +32,9 @@ final class ListDocument {
     @ObservationIgnored private var pendingSave: Task<Void, Never>?
     /// The file's text as last read or written here.
     @ObservationIgnored private var syncedText: String?
+    /// For a repeating checklist's copy, how a clash with another device's
+    /// version is merged (task by task) instead of making a conflict copy.
+    @ObservationIgnored var clashMerge: (@Sendable (String, String) -> String)?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var isCheckingDisk = false
 
@@ -301,7 +304,7 @@ final class ListDocument {
         pendingSave = nil
         let mine = MarkdownCodec.encode(outline)
         do {
-            switch try FileSync.save(mine, to: store, synced: syncedText) {
+            switch try FileSync.save(mine, to: store, synced: syncedText, clashMerge: clashMerge) {
             case .saved(let text):
                 syncedText = text
             case .merged(let text):

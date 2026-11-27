@@ -4,6 +4,35 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
+## 0.8 — 2026-11-27
+
+- **Repeating checklists made on two devices at once now merge.** If two
+  Macs (or a Mac and an iPhone) are out of touch when a new day's
+  checklist is due, say one on a train without a connection, each makes
+  its own copy and you tick things off in both. When they sync, the two
+  versions used to clash: one was saved as a separate “(conflict …)”
+  list, or iCloud quietly kept only one of them, losing what you'd done
+  in the other. Now they're merged task by task:
+  - A task ticked on either device is ticked.
+  - Tasks added on either device are kept, in the place you added them.
+  - A task moved on one device (to another day or heading) is moved,
+    not doubled.
+  - A routine task from the template that you decrufted on one device
+    stays gone.
+  - A carried-over task that one device doesn't have is kept, in case
+    that device never had it.
+- **Or let one device make them.** Settings › Repeating checklists ›
+  Made on chooses Any device (the default, with the merging above) or
+  just this one. With one device chosen, the others never make copies;
+  they show each one once it has synced from that device, so that device
+  needs to be on and online first. The choice is shared by all your
+  devices.
+- **No more silently lost versions of other lists.** When iCloud kept
+  only one version of any other list changed on two devices at once, the
+  other is now saved beside it as a “(conflict …)” list, and Listful
+  says so.
+- The same applies in the iPhone and iPad app.
+
 ## 0.7.1 — 2026-11-27
 
 - **Decruft now always deletes done tasks.** Decruft Done Tasks

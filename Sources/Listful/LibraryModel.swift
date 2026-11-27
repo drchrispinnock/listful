@@ -91,6 +91,12 @@ final class LibraryModel {
     var isCreatingRepeating = false
     var scheduleDraft = RepeatSchedule()
     var errorMessage: String?
+    /// Which device makes repeating checklists' copies; nil until it's been
+    /// read (it may be waiting to download from iCloud).
+    private(set) var maker: MakerSetting?
+    /// This Mac, as `maker` names it.
+    let thisDevice = RepeatingDevice(
+        id: RepeatingDevice.localID(), name: Host.current().localizedName ?? "This Mac")
 
     @ObservationIgnored private var library: TaskLibrary
     @ObservationIgnored private var templateLibrary: TaskLibrary
@@ -105,6 +111,8 @@ final class LibraryModel {
     @ObservationIgnored private var isMakingCopies = false
     @ObservationIgnored private var needsCopiesAgain = false
     @ObservationIgnored private var copiesWait: Task<Void, Never>?
+    /// Repeating copies as this Mac made them, for merging versions.
+    @ObservationIgnored private var madeCopies = MadeCopies.load()
 
     init() {
         let folder = UserDefaults.standard.url(forKey: Keys.folder) ?? Self.defaultFolderURL
@@ -364,7 +372,11 @@ final class LibraryModel {
             guard fd >= 0 else { return nil }
             let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
             source.setEventHandler { [weak self] in
-                MainActor.assumeIsolated { self?.refreshLists() }
+                MainActor.assumeIsolated {
+                    self?.refreshLists()
+                    // iCloud may have brought in another device's version of a copy.
+                    self?.syncCopies(making: false)
+                }
             }
             source.setCancelHandler { close(fd) }
             source.resume()
@@ -454,6 +466,9 @@ final class LibraryModel {
             return
         }
         document = TaskDocument(fileURL: selection, options: options)
+        document?.clashMerge = RepeatingChecklists.clashMerge(
+            for: selection, templates: templateLibrary, lists: library,
+            base: madeCopies.texts[TaskLibrary.displayName(of: selection)])
         document?.sidebarTargets = { [weak self] in
             guard let self else { return [:] }
             return sidebarFrames.filter { !missingFiles.contains($0.key) }
@@ -798,26 +813,51 @@ final class LibraryModel {
     /// thread, and merges away duplicate copies. If the open list was the previous copy, the new one is opened
     /// in its place. Overlapping requests run once more afterwards.
     func makeDueCopies() {
+        syncCopies(making: true)
+    }
+
+    /// Settles versions of copies made or changed on two devices at once
+    /// (see `RepeatingChecklists.syncCopies`), and with `making`, first
+    /// makes the copies that are due, if this Mac makes them.
+    private func syncCopies(making: Bool) {
         guard !isMakingCopies else {
-            needsCopiesAgain = true
+            if making { needsCopiesAgain = true }
             return
         }
         isMakingCopies = true
         // Save first, so tasks being carried over include the latest edits.
-        document?.saveNow()
+        if making { document?.saveNow() }
         let templates = templateLibrary, lists = library, open = selection
+        let bases = madeCopies.texts, device = thisDevice.id
         Task {
-            let (results, trashed) = await Task.detached {
-                let results = RepeatingChecklists.makeDueCopies(
-                    templates: templates, lists: lists, date: Date(), calendar: .current, locale: .current)
-                // When two Macs make the same copy, iCloud keeps both, renaming one.
-                let trashed = RepeatingChecklists.mergeDuplicates(templates: templates, lists: lists, keeping: open)
-                return (results, trashed)
+            let result = await Task.detached {
+                if making {
+                    return RepeatingChecklists.syncCopies(
+                        templates: templates, lists: lists, keeping: open, bases: bases, deviceID: device,
+                        date: Date(), calendar: .current, locale: .current)
+                }
+                var result = RepeatingChecklists.SyncResult()
+                result.maker = try? RepeatingChecklists.maker(in: templates)
+                result.conflicts = RepeatingChecklists.resolveConflicts(
+                    templates: templates, lists: lists, date: Date(), calendar: .current, bases: bases)
+                return result
             }.value
             isMakingCopies = false
-            if !results.isEmpty || !trashed.isEmpty { refreshLists() }
-            if let error = results.compactMap(\.error).first { errorMessage = error }
-            if let moved = results.first(where: { $0.copy != nil && $0.previous != nil && $0.previous == selection }) {
+            if let maker = result.maker, maker != self.maker { self.maker = maker }
+            for made in result.made {
+                if let copy = made.copy, let text = made.madeText {
+                    madeCopies.record(text, name: TaskLibrary.displayName(of: copy), made: Date())
+                }
+            }
+            if result.made.contains(where: { $0.madeText != nil }) { madeCopies.save() }
+            if result.changedLists { refreshLists() }
+            if result.conflicts.merged.contains(where: { $0 == document?.fileURL }) { document?.checkDisk() }
+            if let error = result.made.compactMap(\.error).first { errorMessage = error }
+            if let conflict = result.conflicts.copies.first {
+                errorMessage = "“\(TaskLibrary.displayName(of: conflict.list))” was changed on two devices while they were "
+                    + "out of touch. The other version is saved beside it as “\(TaskLibrary.displayName(of: conflict.copy))”."
+            }
+            if let moved = result.made.first(where: { $0.copy != nil && $0.previous != nil && $0.previous == selection }) {
                 collapsedTemplates.remove(moved.template)
                 selection = moved.copy
             }
@@ -827,4 +867,18 @@ final class LibraryModel {
             }
         }
     }
+
+    /// Chooses which device makes repeating checklists' copies: this Mac,
+    /// or (nil) any device.
+    func setMaker(_ device: RepeatingDevice?) {
+        let setting = MakerSetting(device: device)
+        do {
+            try RepeatingChecklists.setMaker(setting, in: templateLibrary)
+            maker = setting
+            if device == thisDevice { makeDueCopies() }
+        } catch {
+            errorMessage = "Couldn't save which device makes repeating checklists: \(error.localizedDescription)"
+        }
+    }
+
 }
