@@ -25,7 +25,7 @@ OUTLINE YOUR TASKS
 
 TICK THINGS OFF
 • Tap a circle to mark a task done; swipe for done or delete
-• Decruft hides finished tasks (or deletes them) to keep a list tidy
+• Decruft deletes finished tasks to keep a list tidy
 • Sort a list A to Z
 
 REPEATING CHECKLISTS

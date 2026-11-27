@@ -4,6 +4,18 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
+## 0.7.1 — 2026-11-27
+
+- **Decruft now always deletes done tasks.** Decruft Done Tasks
+  (Cmd-Shift-D) used to hide done tasks by default, leaving them in the
+  list file, and deleting them was an option in Settings. Hidden tasks
+  got in the way, so Decruft now always deletes them, and the setting is
+  gone. Any open subtasks under a done task are kept and move up into
+  its place.
+- Tasks hidden by an earlier Decruft are deleted too the next time you
+  decruft. Until then, View ▸ Show Decrufted Tasks still shows them.
+- The same applies in the iPhone and iPad app.
+
 ## 0.7 — 2026-11-19
 
 - **Only tasks are tasks.** Text in a list file that isn't a task or a

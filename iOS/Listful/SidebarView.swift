@@ -169,7 +169,6 @@ struct RepeatingRows: View {
 struct SettingsView: View {
     let library: LibraryStore
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("deleteDecruftedTasks") private var deleteDecrufted = false
 
     var body: some View {
         NavigationStack {
@@ -189,9 +188,6 @@ struct SettingsView: View {
                     }
                 } footer: {
                     Text("iCloud Drive › Listful is the folder the Mac app uses too.")
-                }
-                Section("Done tasks") {
-                    Toggle("Decruft deletes done tasks", isOn: $deleteDecrufted)
                 }
             }
             .navigationTitle("Settings")

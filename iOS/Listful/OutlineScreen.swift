@@ -10,7 +10,6 @@ struct OutlineScreen: View {
     @Bindable var document: ListDocument
     @Bindable var library: LibraryStore
     @FocusState private var isTitleFocused: Bool
-    @AppStorage("deleteDecruftedTasks") private var deleteDecrufted = false
 
     var body: some View {
         content
@@ -126,7 +125,7 @@ struct OutlineScreen: View {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button("Sort A–Z", systemImage: "arrow.up.arrow.down") { document.sort(document.editingID) }
-                Button("Decruft Done Tasks", systemImage: "eye.slash") { document.decruft(deleting: deleteDecrufted) }
+                Button("Decruft Done Tasks", systemImage: "eye.slash") { document.decruft() }
                 Toggle(isOn: $library.showDecrufted) { Label("Show Decrufted Tasks", systemImage: "eye") }
                 Divider()
                 Button("Reload", systemImage: "arrow.clockwise") { document.reload() }

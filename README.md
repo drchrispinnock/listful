@@ -4,7 +4,7 @@ A native macOS outliner for task lists, in the spirit of Workflowy but with no
 subscription. Lists are plain Markdown files you own.
 
 - Bulleted tasks you can nest with Tab / Shift-Tab and collapse to their parent
-- Tasks are Open, Done (struck through or ticked) or Decrufted (tidied away, never deleted)
+- Tasks are Open or Done (struck through or ticked); Decruft deletes done tasks, keeping any open subtasks
 - `#`, `##`, `###` headings; a `#` on the first line is the list's title
 - A sidebar of lists: one folder of `.md` files (default iCloud Drive › Listful, shared with the iPhone and iPad app; before 0.6, `~/Documents/Task Lists`),
   plus any Markdown files elsewhere that you add

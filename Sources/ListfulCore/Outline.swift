@@ -5,7 +5,7 @@ public enum TaskState: String, Sendable, CaseIterable {
     /// Completed; shown struck through.
     case done
     /// Completed and tidied away; hidden unless "show decrufted" is on.
-    /// Kept in the file unless the Delete decrufted tasks setting is on.
+    /// Only in files from before Decruft always deleted; Decruft deletes these too.
     case decrufted
 }
 
@@ -538,6 +538,7 @@ public struct Outline: Equatable, Sendable {
     }
 
     /// Moves every done task to decrufted. Returns how many changed.
+    /// (Decruft itself now deletes, via `deleteDone`.)
     @discardableResult
     public mutating func decruftDone() -> Int {
         var count = 0
@@ -548,7 +549,7 @@ public struct Outline: Equatable, Sendable {
         return count
     }
 
-    /// Deletes every done and decrufted task, for decrufting by deleting.
+    /// Deletes every done and decrufted task: what Decruft does.
     /// Open tasks under a deleted one are kept, moved up to its place.
     /// Returns how many were deleted.
     @discardableResult

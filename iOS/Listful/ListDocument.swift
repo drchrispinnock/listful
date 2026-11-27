@@ -177,14 +177,11 @@ final class ListDocument {
         mutate { $0 = sorted }
     }
 
-    func decruft(deleting: Bool) {
+    /// Deletes done (and older decrufted) tasks, keeping open subtasks.
+    func decruft() {
         mutate {
-            if deleting {
-                $0.deleteDone()
-                if $0.isEmpty { $0.appendItem() }
-            } else {
-                $0.decruftDone()
-            }
+            $0.deleteDone()
+            if $0.isEmpty { $0.appendItem() }
         }
     }
 
