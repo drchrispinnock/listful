@@ -6,7 +6,7 @@ import Foundation
 /// Stored in the template file as a marker line after its title:
 ///
 ///     # Morning Routine
-///     <!-- listful: repeat=weekly:mon,wed carry-over -->
+///     <!-- listful: repeat=weekly:mon,wed carry-over made-on=<id>:Home%20Mac -->
 ///
 /// Every frequency's options are kept (so switching frequency in the editor
 /// and back doesn't lose them), but only the current frequency's are written
@@ -27,6 +27,9 @@ public struct RepeatSchedule: Equatable, Sendable {
     /// Whether a new copy takes the previous copy's unfinished tasks,
     /// removing them from it.
     public var carriesOver: Bool
+    /// The only device that makes this template's copies; nil for any device.
+    /// Written as `made-on=<id>:<name>`, the name percent-encoded.
+    public var maker: RepeatingDevice?
 
     public init(
         frequency: Frequency = .daily,
@@ -34,7 +37,8 @@ public struct RepeatSchedule: Equatable, Sendable {
         dayOfMonth: Int = 1,
         month: Int = 1,
         day: Int = 1,
-        carriesOver: Bool = false
+        carriesOver: Bool = false,
+        maker: RepeatingDevice? = nil
     ) {
         self.frequency = frequency
         self.weekdays = weekdays
@@ -42,6 +46,7 @@ public struct RepeatSchedule: Equatable, Sendable {
         self.month = month
         self.day = day
         self.carriesOver = carriesOver
+        self.maker = maker
     }
 
     public static func == (a: RepeatSchedule, b: RepeatSchedule) -> Bool {
@@ -177,16 +182,29 @@ public struct RepeatSchedule: Equatable, Sendable {
         case .daily, .weekdays, .quarterly:
             break
         }
-        return ["repeat=" + value] + (carriesOver ? ["carry-over"] : [])
+        var words = ["repeat=" + value] + (carriesOver ? ["carry-over"] : [])
+        if let maker, let name = maker.name.addingPercentEncoding(withAllowedCharacters: Self.nameCharacters) {
+            words.append("made-on=\(maker.id):\(name)")
+        }
+        return words
     }
 
     /// Reads a schedule from a marker's words; nil if there's no valid `repeat=`.
+    /// What a device name may hold unencoded in a marker.
+    private static let nameCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+
     init?(markerWords words: Set<String>) {
         guard let word = words.first(where: { $0.hasPrefix("repeat=") }) else { return nil }
         let value = word.dropFirst("repeat=".count)
         let parts = value.split(separator: ":", maxSplits: 1).map(String.init)
         guard let name = parts.first, let frequency = Frequency(rawValue: name) else { return nil }
         self.init(frequency: frequency, carriesOver: words.contains("carry-over"))
+        if let made = words.first(where: { $0.hasPrefix("made-on=") }) {
+            let parts = made.dropFirst("made-on=".count).split(separator: ":", maxSplits: 1).map(String.init)
+            if parts.count == 2, !parts[0].isEmpty {
+                maker = RepeatingDevice(id: parts[0], name: parts[1].removingPercentEncoding ?? parts[1])
+            }
+        }
         let options = parts.count > 1 ? parts[1] : ""
         func day(_ text: Substring) -> Int? { text == "last" ? 0 : Int(text).flatMap { (1...31).contains($0) ? $0 : nil } }
         switch frequency {

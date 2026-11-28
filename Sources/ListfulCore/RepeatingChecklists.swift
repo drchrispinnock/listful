@@ -180,17 +180,12 @@ public enum RepeatingChecklists {
     /// doesn't exist yet. Templates with no tasks written in them are skipped,
     /// so a new template isn't copied before it's been filled in.
     ///
-    /// With `deviceID`, copies are only made if no device has been chosen
-    /// to make them (`maker(in:)`), or this one has. Until the choice has
-    /// downloaded from iCloud, none are made.
+    /// With `deviceID`, a template whose schedule names another device as
+    /// its maker is skipped: only that device makes its copies.
     public static func makeDueCopies(
         templates: TaskLibrary, lists: TaskLibrary,
         date: Date, calendar: Calendar, locale: Locale, deviceID: String? = nil
     ) -> [Result] {
-        if let deviceID {
-            guard let maker = try? maker(in: templates) else { return [] }
-            if let chosen = maker.device, chosen.id != deviceID { return [] }
-        }
         guard let templateURLs = try? templates.lists() else { return [] }
         let existing = Set(((try? lists.lists()) ?? []).map(TaskLibrary.displayName(of:)))
         var results: [Result] = []
@@ -199,6 +194,7 @@ public enum RepeatingChecklists {
             do {
                 let template = try MarkdownFileStore(fileURL: url).load()
                 guard let schedule = template.schedule,
+                      deviceID == nil || schedule.maker == nil || schedule.maker?.id == deviceID,
                       template.items.contains(where: { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty })
                 else { continue }
 

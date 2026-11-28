@@ -91,12 +91,6 @@ final class LibraryModel {
     var isCreatingRepeating = false
     var scheduleDraft = RepeatSchedule()
     var errorMessage: String?
-    /// Which device makes repeating checklists' copies; nil until it's been
-    /// read (it may be waiting to download from iCloud).
-    private(set) var maker: MakerSetting?
-    /// This Mac, as `maker` names it.
-    let thisDevice = RepeatingDevice(
-        id: RepeatingDevice.localID(), name: Host.current().localizedName ?? "This Mac")
 
     @ObservationIgnored private var library: TaskLibrary
     @ObservationIgnored private var templateLibrary: TaskLibrary
@@ -828,7 +822,7 @@ final class LibraryModel {
         // Save first, so tasks being carried over include the latest edits.
         if making { document?.saveNow() }
         let templates = templateLibrary, lists = library, open = selection
-        let bases = madeCopies.texts, device = thisDevice.id
+        let bases = madeCopies.texts, device = RepeatingDevice.thisMac.id
         Task {
             let result = await Task.detached {
                 if making {
@@ -837,13 +831,11 @@ final class LibraryModel {
                         date: Date(), calendar: .current, locale: .current)
                 }
                 var result = RepeatingChecklists.SyncResult()
-                result.maker = try? RepeatingChecklists.maker(in: templates)
                 result.conflicts = RepeatingChecklists.resolveConflicts(
                     templates: templates, lists: lists, date: Date(), calendar: .current, bases: bases)
                 return result
             }.value
             isMakingCopies = false
-            if let maker = result.maker, maker != self.maker { self.maker = maker }
             for made in result.made {
                 if let copy = made.copy, let text = made.madeText {
                     madeCopies.record(text, name: TaskLibrary.displayName(of: copy), made: Date())
@@ -867,18 +859,4 @@ final class LibraryModel {
             }
         }
     }
-
-    /// Chooses which device makes repeating checklists' copies: this Mac,
-    /// or (nil) any device.
-    func setMaker(_ device: RepeatingDevice?) {
-        let setting = MakerSetting(device: device)
-        do {
-            try RepeatingChecklists.setMaker(setting, in: templateLibrary)
-            maker = setting
-            if device == thisDevice { makeDueCopies() }
-        } catch {
-            errorMessage = "Couldn't save which device makes repeating checklists: \(error.localizedDescription)"
-        }
-    }
-
 }

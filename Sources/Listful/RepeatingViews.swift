@@ -1,6 +1,20 @@
 import SwiftUI
 import ListfulCore
 
+extension RepeatingDevice {
+    /// This Mac, as a template's `maker` names it.
+    static let thisMac = RepeatingDevice(id: localID(), name: Host.current().localizedName ?? "This Mac")
+
+    /// How a template's maker reads in its bar and editor.
+    static func makerSummary(_ maker: RepeatingDevice?) -> String {
+        switch maker {
+        case nil: "Made on any device"
+        case thisMac: "Made on this Mac only"
+        case let other?: "Made on “\(other.name)” only"
+        }
+    }
+}
+
 /// The controls for a repeating checklist's schedule: how often, on which
 /// days, and whether unfinished tasks carry over.
 struct ScheduleForm: View {
@@ -38,6 +52,18 @@ struct ScheduleForm: View {
         Toggle(isOn: $schedule.carriesOver) {
             Text("Carry over unfinished tasks")
             Text("Each new copy starts with the previous copy's open tasks, which are moved out of it.")
+        }
+        Picker(selection: $schedule.maker) {
+            Text("Any device").tag(RepeatingDevice?.none)
+            Text("This Mac (\(RepeatingDevice.thisMac.name))").tag(Optional(RepeatingDevice.thisMac))
+            if let other = schedule.maker, other != .thisMac {
+                Text(other.name).tag(Optional(other))
+            }
+        } label: {
+            Text("Made on")
+            Text(schedule.maker == nil
+                 ? "Each device makes the copy when it's due; two made while out of touch are merged."
+                 : "Only that device makes the copies. The others show each one once it has synced.")
         }
     }
 
@@ -143,9 +169,9 @@ struct ScheduleBar: View {
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 1) {
                 Text(schedule.summary(calendar: .current, locale: .current))
-                Text(schedule.carriesOver
-                     ? "Template. Each copy takes over the last one's unfinished tasks."
-                     : "Template. Each copy starts fresh.")
+                Text((schedule.carriesOver
+                     ? "Template. Each copy takes over the last one's unfinished tasks. "
+                     : "Template. Each copy starts fresh. ") + RepeatingDevice.makerSummary(schedule.maker) + ".")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

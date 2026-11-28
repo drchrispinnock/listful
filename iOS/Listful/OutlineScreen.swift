@@ -127,6 +127,19 @@ struct OutlineScreen: View {
                 Button("Sort A–Z", systemImage: "arrow.up.arrow.down") { document.sort(document.editingID) }
                 Button("Decruft Done Tasks", systemImage: "eye.slash") { document.decruft() }
                 Toggle(isOn: $library.showDecrufted) { Label("Show Decrufted Tasks", systemImage: "eye") }
+                if let schedule = document.outline.schedule {
+                    Divider()
+                    Picker(selection: Binding(get: { schedule.maker }, set: { document.setMaker($0) })) {
+                        Text("Any Device").tag(RepeatingDevice?.none)
+                        Text("This \(UIDevice.current.model)").tag(Optional(RepeatingDevice.thisDevice))
+                        if let other = schedule.maker, other != .thisDevice {
+                            Text(other.name).tag(Optional(other))
+                        }
+                    } label: {
+                        Label("Made On", systemImage: "repeat")
+                    }
+                    .pickerStyle(.menu)
+                }
                 Divider()
                 Button("Reload", systemImage: "arrow.clockwise") { document.reload() }
             } label: {

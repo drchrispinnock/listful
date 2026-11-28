@@ -175,40 +175,33 @@ private func merge(_ a: String, _ b: String, base: String? = nil, template: Stri
     var templates: TaskLibrary { TaskLibrary(folderURL: lists.templatesFolderURL) }
     let home = RepeatingDevice(id: "home", name: "Home Mac")
 
-    private func makeTemplate() throws {
+    private func makeTemplate(_ name: String, maker: RepeatingDevice?) throws {
         try FileManager.default.createDirectory(at: templates.folderURL, withIntermediateDirectories: true)
-        try templates.createList(named: "Daily", contents: Outline(
-            title: "Daily", items: [TaskItem(title: "Stretch")], schedule: RepeatSchedule(frequency: .daily)))
+        try templates.createList(named: name, contents: Outline(
+            title: name, items: [TaskItem(title: "Stretch")], schedule: RepeatSchedule(frequency: .daily, maker: maker)))
     }
 
-    private func run(as device: String) -> [RepeatingChecklists.Result] {
+    private func run(as device: String) -> [String] {
         RepeatingChecklists.makeDueCopies(
             templates: templates, lists: lists, date: Date(timeIntervalSince1970: 1_795_000_000),
             calendar: Calendar(identifier: .gregorian), locale: Locale(identifier: "en_GB"), deviceID: device)
+            .compactMap(\.copy).map(TaskLibrary.displayName(of:)).map { String($0.prefix(while: { $0 != " " })) }
     }
 
-    @Test func onlyTheChosenDeviceMakesCopies() throws {
+    @Test func eachTemplatesMakerAloneMakesItsCopies() throws {
         defer { try? FileManager.default.removeItem(at: folder) }
-        try makeTemplate()
-        try RepeatingChecklists.setMaker(MakerSetting(device: home), in: templates)
-        #expect(try RepeatingChecklists.maker(in: templates) == MakerSetting(device: home))
-        // Hidden, so it isn't taken for a template.
-        #expect(try templates.lists().map(TaskLibrary.displayName(of:)) == ["Daily"])
-
-        #expect(run(as: "laptop").isEmpty)
-        let made = run(as: "home")
-        #expect(made.count == 1)
-        #expect(made[0].madeText?.hasSuffix("\n\n- [ ] Stretch\n") == true)
-        #expect(try MarkdownFileStore(fileURL: made[0].copy!).readText() == made[0].madeText)
+        try makeTemplate("Daily", maker: home)
+        try makeTemplate("Weekend", maker: nil)
+        #expect(run(as: "laptop") == ["Weekend"])
+        #expect(run(as: "home") == ["Daily"])
     }
 
-    @Test func anyDeviceMakesCopiesWhenNoneIsChosen() throws {
-        defer { try? FileManager.default.removeItem(at: folder) }
-        try makeTemplate()
-        try RepeatingChecklists.setMaker(MakerSetting(device: home), in: templates)
-        try RepeatingChecklists.setMaker(MakerSetting(), in: templates)
-        #expect(!FileManager.default.fileExists(atPath: RepeatingChecklists.makerURL(in: templates).path))
-        #expect(run(as: "laptop").count == 1)
+    @Test func theMakerIsKeptInTheTemplatesMarker() {
+        let schedule = RepeatSchedule(frequency: .daily, carriesOver: true, maker: RepeatingDevice(id: "AB-12", name: "Chris's Mac: Home"))
+        let text = MarkdownCodec.encode(Outline(title: "Daily", items: [TaskItem(title: "Stretch")], schedule: schedule))
+        #expect(text == "# Daily\n<!-- listful: repeat=daily carry-over made-on=AB-12:Chris%27s%20Mac%3A%20Home -->\n\n- [ ] Stretch\n")
+        #expect(MarkdownCodec.decode(text).schedule?.maker == schedule.maker)
+        #expect(MarkdownCodec.decode(text).schedule == schedule)
     }
 
     @Test func madeCopiesKeepsTheNewest() {

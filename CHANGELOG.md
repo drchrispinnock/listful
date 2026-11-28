@@ -4,6 +4,18 @@ Each release's section is used as its release notes: on the GitHub release
 page and in the app's update window. `scripts/release` refuses to build a
 version that has no section here.
 
+## 0.8.1 — 2026-11-28
+
+- **Choose the device that makes each repeating checklist.** 0.8's “Made
+  on” setting applied to every repeating checklist at once. It's now set
+  for each checklist separately, so a daily list can be made only on your
+  home Mac while a weekend one is made wherever you are. On the Mac it's
+  in the checklist's schedule (Edit… on the template); on iPhone and iPad
+  it's Made On in an open template's menu. The template's bar says which
+  device makes it. Any device remains the default, with versions made on
+  two devices merged as in 0.8.
+- The setting has gone from Settings.
+
 ## 0.8 — 2026-11-27
 
 - **Repeating checklists made on two devices at once now merge.** If two

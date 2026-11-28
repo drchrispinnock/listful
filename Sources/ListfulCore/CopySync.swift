@@ -1,6 +1,6 @@
 import Foundation
 
-/// A device that can make repeating checklists' copies.
+/// A device that can make repeating checklists' copies (`RepeatSchedule.maker`).
 public struct RepeatingDevice: Codable, Equatable, Hashable, Sendable {
     /// Made up on each device and kept in its own settings.
     public var id: String
@@ -10,17 +10,6 @@ public struct RepeatingDevice: Codable, Equatable, Hashable, Sendable {
     public init(id: String, name: String) {
         self.id = id
         self.name = name
-    }
-}
-
-/// Which device makes repeating checklists' copies, kept in the templates
-/// folder so every device sharing it sees the same choice.
-public struct MakerSetting: Codable, Equatable, Sendable {
-    /// nil: any device makes them when they're due.
-    public var device: RepeatingDevice?
-
-    public init(device: RepeatingDevice? = nil) {
-        self.device = device
     }
 }
 
@@ -73,38 +62,6 @@ extension RepeatingDevice {
 }
 
 extension RepeatingChecklists {
-    /// The file holding the `MakerSetting`, hidden in the templates folder.
-    public static func makerURL(in templates: TaskLibrary) -> URL {
-        templates.folderURL.appending(path: ".listful-maker.json")
-    }
-
-    /// Which device makes the copies. Throws `notDownloaded` while the
-    /// setting is still only in iCloud.
-    public static func maker(in templates: TaskLibrary) throws -> MakerSetting {
-        guard let text = try MarkdownFileStore(fileURL: makerURL(in: templates)).readText() else { return MakerSetting() }
-        return (try? JSONDecoder().decode(MakerSetting.self, from: Data(text.utf8))) ?? MakerSetting()
-    }
-
-    public static func setMaker(_ setting: MakerSetting, in templates: TaskLibrary) throws {
-        let url = makerURL(in: templates)
-        guard setting.device != nil else {
-            if FileManager.default.fileExists(atPath: url.path) {
-                var result: Swift.Result<Void, Error> = .success(())
-                var coordinationError: NSError?
-                NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forDeleting, error: &coordinationError) { url in
-                    result = Swift.Result { try FileManager.default.removeItem(at: url) }
-                }
-                if let coordinationError { throw coordinationError }
-                try result.get()
-            }
-            return
-        }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let text = String(decoding: try encoder.encode(setting), as: UTF8.self) + "\n"
-        try MarkdownFileStore(fileURL: url).writeText(text)
-    }
-
     /// What `resolveConflicts` did.
     public struct ConflictResolution: Sendable, Equatable {
         /// Copies whose versions were merged into one.
@@ -204,8 +161,6 @@ extension RepeatingChecklists {
         /// Duplicates (`… 2`) merged into their originals and trashed.
         public var trashed: [URL] = []
         public var conflicts = ConflictResolution()
-        /// nil while it's still only in iCloud.
-        public var maker: MakerSetting?
 
         public init() {}
 
@@ -213,8 +168,7 @@ extension RepeatingChecklists {
     }
 
     /// Everything the apps do to keep repeating copies in order, off the
-    /// main thread: make the copies that are due (if this device makes
-    /// them), resolve versions iCloud kept from two devices, and fold
+    /// main thread: make the copies that are due (those this device makes), resolve versions iCloud kept from two devices, and fold
     /// `… 2` duplicates into their originals. `keeping` is the open list,
     /// which isn't trashed; `bases` are this device's `MadeCopies` texts.
     public static func syncCopies(
@@ -222,7 +176,6 @@ extension RepeatingChecklists {
         date: Date, calendar: Calendar, locale: Locale
     ) -> SyncResult {
         var result = SyncResult()
-        result.maker = try? maker(in: templates)
         result.made = makeDueCopies(
             templates: templates, lists: lists, date: date, calendar: calendar, locale: locale, deviceID: deviceID)
         var bases = bases

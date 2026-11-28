@@ -208,6 +208,13 @@ final class ListDocument {
 
     // MARK: - Loading and saving
 
+    /// Which device makes this template's copies (nil: any device).
+    func setMaker(_ maker: RepeatingDevice?) {
+        guard var schedule = outline.schedule, schedule.maker != maker else { return }
+        schedule.maker = maker
+        mutate { $0.schedule = schedule }
+    }
+
     func reload() {
         pendingSave?.cancel()
         pendingSave = nil
