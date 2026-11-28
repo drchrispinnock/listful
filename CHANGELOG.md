@@ -15,6 +15,13 @@ version that has no section here.
   device makes it. Any device remains the default, with versions made on
   two devices merged as in 0.8.
 - The setting has gone from Settings.
+- **No more doubled conflict copies.** When two Macs both found the same
+  hidden iCloud version of a list, each saved it as a “(conflict …)”
+  list, and iCloud renamed one “… 2”. Now a version that's already been
+  saved isn't saved again, and an identical “… 2” of a conflict copy is
+  moved to the Trash. The conflict copy itself is an older version of the
+  list, kept so you can check it for anything you need; trash it when
+  you're done.
 
 ## 0.8 — 2026-11-27
 

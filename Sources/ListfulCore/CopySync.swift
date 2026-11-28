@@ -69,10 +69,12 @@ extension RepeatingChecklists {
         /// Versions of other lists, saved beside them since they can't be
         /// merged safely; each is (list, copy).
         public var copies: [ConflictCopy] = []
+        /// Conflict copies trashed for being the same as another.
+        public var trashed: [URL] = []
 
         public init() {}
 
-        public var isEmpty: Bool { merged.isEmpty && copies.isEmpty }
+        public var isEmpty: Bool { merged.isEmpty && copies.isEmpty && trashed.isEmpty }
     }
 
     public struct ConflictCopy: Sendable, Equatable {
@@ -96,7 +98,9 @@ extension RepeatingChecklists {
         bases: [String: String] = [:]
     ) -> ConflictResolution {
         var resolution = ConflictResolution()
-        let urls = ((try? lists.lists()) ?? []) + ((try? templates.lists()) ?? [])
+        resolution.trashed = trashDuplicateConflictCopies(in: lists) + trashDuplicateConflictCopies(in: templates)
+        var urls = ((try? lists.lists()) ?? []) + ((try? templates.lists()) ?? [])
+        urls.removeAll { resolution.trashed.contains($0) }
         let conflicted = urls.compactMap { url -> (URL, [NSFileVersion])? in
             guard let versions = NSFileVersion.unresolvedConflictVersionsOfItem(at: url), !versions.isEmpty else { return nil }
             return (url, versions)
@@ -131,7 +135,11 @@ extension RepeatingChecklists {
                     if mergedText != text { try store.writeText(mergedText) }
                     resolution.merged.append(url)
                 } else {
-                    for (version, other) in others where other != text {
+                    // Another device may have saved the same version already.
+                        var saved = Set(urls.filter { isConflictCopy($0, of: url) }
+                        .compactMap { try? MarkdownFileStore(fileURL: $0).readText() })
+                    for (version, other) in others where other != text && !saved.contains(other) {
+                        saved.insert(other)
                         let copy = TaskLibrary.conflictCopyURL(for: url, date: version.modificationDate ?? date)
                         try MarkdownFileStore(fileURL: copy).writeText(other)
                         resolution.copies.append(ConflictCopy(list: url, copy: copy))
@@ -143,6 +151,33 @@ extension RepeatingChecklists {
             markResolved(versions, of: url)
         }
         return resolution
+    }
+
+    /// Whether `copy` is a conflict copy of `list` (“<list> (conflict …)”).
+    static func isConflictCopy(_ copy: URL, of list: URL) -> Bool {
+        copy.deletingLastPathComponent() == list.deletingLastPathComponent()
+            && TaskLibrary.displayName(of: copy).hasPrefix(TaskLibrary.displayName(of: list) + " (conflict ")
+    }
+
+    /// Trashes conflict copies that iCloud renamed “… 2” because two devices
+    /// saved the same one at once: those the same as the copy they're named
+    /// after. Returns what was trashed.
+    public static func trashDuplicateConflictCopies(in library: TaskLibrary) -> [URL] {
+        guard let urls = try? library.lists() else { return [] }
+        var trashed: [URL] = []
+        for url in urls {
+            let name = TaskLibrary.displayName(of: url)
+            guard name.contains(" (conflict "), let space = name.lastIndex(of: " "),
+                  let n = Int(name[name.index(after: space)...]), n > 1
+            else { continue }
+            let original = library.url(forName: String(name[..<space]))
+            guard String(name[..<space]).hasSuffix(")"), urls.contains(original),
+                  let text = try? MarkdownFileStore(fileURL: url).readText(),
+                  text == (try? MarkdownFileStore(fileURL: original).readText())
+            else { continue }
+            if (try? library.trashList(at: url)) != nil { trashed.append(url) }
+        }
+        return trashed
     }
 
     private static func markResolved(_ versions: [NSFileVersion], of url: URL) {

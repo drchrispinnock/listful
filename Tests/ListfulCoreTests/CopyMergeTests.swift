@@ -214,3 +214,23 @@ private func merge(_ a: String, _ b: String, base: String? = nil, template: Stri
         #expect(made.texts["Daily \(MadeCopies.limit + 4)"] == "text \(MadeCopies.limit + 4)")
     }
 }
+
+@Suite struct DuplicateConflictCopyTests {
+    let folder = FileManager.default.temporaryDirectory.appending(path: "ConflictCopyTests-\(UUID().uuidString)")
+    var lists: TaskLibrary { TaskLibrary(folderURL: folder) }
+
+    @Test func identicalDuplicatesOfConflictCopiesAreTrashed() throws {
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        func write(_ name: String, _ text: String) throws { try MarkdownFileStore(fileURL: lists.url(forName: name)).writeText(text) }
+        try write("Signet", "- [ ] now\n")
+        try write("Signet (conflict 2026-11-26 22-58)", "- [ ] then\n")
+        try write("Signet (conflict 2026-11-26 22-58) 2", "- [ ] then\n")
+        try write("Signet (conflict 2026-11-26 23-10)", "- [ ] other\n")
+        try write("Signet (conflict 2026-11-26 23-10) 2", "- [ ] different\n")
+        try write("Signet 2", "- [ ] now\n")  // not a conflict copy: left alone
+        let trashed = RepeatingChecklists.trashDuplicateConflictCopies(in: lists).map(TaskLibrary.displayName(of:))
+        #expect(trashed == ["Signet (conflict 2026-11-26 22-58) 2"])
+        #expect(try lists.lists().count == 5)
+    }
+}
